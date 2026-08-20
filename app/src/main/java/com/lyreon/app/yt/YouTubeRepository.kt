@@ -1,0 +1,841 @@
+package com.lyreon.app.yt
+
+import com.lyreon.app.data.model.LyreonTrack
+import com.lyreon.app.data.model.SearchFilter
+import com.lyreon.app.data.model.YtPlaylist
+import android.util.Log
+import com.lyreon.app.data.settings.AudioQuality
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONObject
+import org.schabi.newpipe.extractor.InfoItem
+import org.schabi.newpipe.extractor.NewPipe
+import org.schabi.newpipe.extractor.Page
+import org.schabi.newpipe.extractor.ServiceList
+import org.schabi.newpipe.extractor.localization.ContentCountry
+import org.schabi.newpipe.extractor.localization.Localization
+import org.schabi.newpipe.extractor.playlist.PlaylistInfo
+import org.schabi.newpipe.extractor.playlist.PlaylistInfoItem
+import org.schabi.newpipe.extractor.search.SearchExtractor
+import org.schabi.newpipe.extractor.search.filter.FilterItem
+import org.schabi.newpipe.extractor.services.youtube.extractors.YoutubeTrendingExtractor
+import org.schabi.newpipe.extractor.services.youtube.linkHandler.YoutubeSearchQueryHandlerFactory
+import org.schabi.newpipe.extractor.services.youtube.linkHandler.YoutubeStreamLinkHandlerFactory
+import org.schabi.newpipe.extractor.services.youtube.linkHandler.YoutubeTrendingLinkHandlerFactory
+import org.schabi.newpipe.extractor.stream.AudioStream
+import org.schabi.newpipe.extractor.stream.StreamInfo
+import org.schabi.newpipe.extractor.stream.VideoStream
+import org.schabi.newpipe.extractor.stream.StreamInfoItem
+import java.io.IOException
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.TimeUnit
+
+/** Klien HTTP bersama: satu untuk ekstraksi NewPipe, satu untuk streaming audio. */
+object LyreonHttp {
+    const val USER_AGENT =
+        "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36"
+
+    val extractClient: OkHttpClient by lazy {
+        OkHttpClient.Builder()
+            .connectTimeout(12, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .writeTimeout(30, TimeUnit.SECONDS)
+            .retryOnConnectionFailure(true)
+            .build()
+    }
+
+    val streamClient: OkHttpClient by lazy {
+        OkHttpClient.Builder()
+            .connectTimeout(12, TimeUnit.SECONDS)
+            .readTimeout(60, TimeUnit.SECONDS)
+            .retryOnConnectionFailure(true)
+            .addInterceptor { chain ->
+                val req = chain.request().newBuilder()
+                    .header("User-Agent", USER_AGENT)
+                    .header("Referer", "https://www.youtube.com/")
+                    .build()
+                chain.proceed(req)
+            }
+            .build()
+    }
+}
+
+/** Stream audio terpilih untuk satu videoId (dipakai player & downloader). */
+data class ResolvedAudio(
+    val videoId: String,
+    val url: String,
+    val mimeType: String,
+    val suffix: String,
+    val bitrateKbps: Int,
+    val expiresAtMs: Long,
+    /**
+     * Kandidat stream ke-2 dari keluarga format berbeda (m4a ↔ webm/opus).
+     * Jalur penandatanganan tiap format kerap terpisah, sehingga saat URL
+     * utama 403/tak tersedia, kandidat ini sering masih hidup ("stream lama"
+     * sebagai cadangan otomatis, tanpa intervensi pengguna).
+     */
+    val fallbackUrl: String? = null,
+)
+
+data class YtTrackBundle(
+    val track: LyreonTrack,
+    val related: List<LyreonTrack>,
+    /** Sinyal konteks benih — dipanen dari halaman tontonan YouTube: */
+    val seedTags: List<String> = emptyList(),          // tagar resmi video (#speedup)
+    val seedHashtags: List<String> = emptyList(),      // tagar di teks deskripsi (#sadvibes)
+    val seedCategory: String = "",                     // kategori YouTube (Music, dll)
+)
+
+/** Sesi pencarian stateful — halaman berikutnya dilanjutkan dari objek ini. */
+class YtSearchSession internal constructor(
+    private val extractor: SearchExtractor,
+) {
+    private var nextPage: Page? = null
+
+    var hasNext: Boolean = true
+        private set
+
+    suspend fun first(): List<InfoItem> = withContext(Dispatchers.IO) {
+        extractor.fetchPage()
+        val page = extractor.initialPage
+        nextPage = page.nextPage
+        hasNext = page.hasNextPage()
+        page.items
+    }
+
+    suspend fun more(): List<InfoItem> = withContext(Dispatchers.IO) {
+        val np = nextPage ?: return@withContext emptyList<InfoItem>()
+        val page = extractor.getPage(np)
+        nextPage = page.nextPage
+        hasNext = page.hasNextPage()
+        page.items
+    }
+}
+
+/**
+ * Repository YouTube Music (online) — semua akses jaringan via NewPipeExtractor.
+ * Metode suspend berjalan di Dispatchers.IO; `resolveAudioBlocking` sengaja blocking
+ * karena dipanggil dari thread loader ExoPlayer (pola yang sama dipakai InnerTune/Metrolist).
+ */
+class YouTubeRepository {
+
+    companion object {
+        private const val TAG = "LyraArtistAvatar"
+
+        @Volatile
+        private var initialized = false
+
+        /** Dipanggil sekali dari LyreonApp.onCreate. */
+        fun initNewPipe() {
+            if (initialized) return
+            synchronized(this) {
+                if (initialized) return
+                NewPipe.init(
+                    OkHttpDownloader.init(LyreonHttp.extractClient),
+                    Localization("en", "US"),
+                )
+                initialized = true
+            }
+        }
+
+        private fun videoIdOf(url: String): String = try {
+            YoutubeStreamLinkHandlerFactory.getInstance().getId(url)
+        } catch (e: Exception) {
+            Regex("[?&]v=([\\w-]{6,})").find(url)?.groupValues?.get(1)
+                ?: url.substringAfter("/shorts/").substringBefore("?").takeIf { it.length in 6..15 }
+                ?: url.substringAfter("youtu.be/").substringBefore("?").ifBlank { url }
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Pencarian
+    // ------------------------------------------------------------------
+
+    fun newSearchSession(query: String, filter: SearchFilter): YtSearchSession {
+        // Fork Metrolist: getSearchExtractor menerima List<FilterItem>, bukan string.
+        // Nama filter ("music_songs", "videos", dsb.) dipetakan ke FilterItem
+        // milik YoutubeSearchQueryHandlerFactory; fallback = pencarian tanpa filter.
+        val contentFilter = resolveContentFilter(filter.newPipeFilter)
+        val extractor = runCatching {
+            ServiceList.YouTube.getSearchExtractor(query, listOfNotNull(contentFilter), null)
+        }.getOrElse {
+            ServiceList.YouTube.getSearchExtractor(query)
+        }
+        return YtSearchSession(extractor)
+    }
+
+    /** Pohon Filter konten YouTube; di-resolve sekali, thread-safe. */
+    private val ytContentFilterRoot: org.schabi.newpipe.extractor.search.filter.Filter? by lazy(
+        LazyThreadSafetyMode.SYNCHRONIZED,
+    ) {
+        runCatching { YoutubeSearchQueryHandlerFactory.getInstance().availableContentFilter }
+            .getOrNull()
+    }
+
+    private fun resolveContentFilter(name: String): FilterItem? =
+        ytContentFilterRoot?.filterGroups
+            ?.flatMap { it.filterItems.toList() }
+            ?.firstOrNull { it.name.equals(name, ignoreCase = true) }
+
+    data class SearchOutcome(
+        val tracks: List<LyreonTrack>,
+        val playlists: List<YtPlaylist>,
+    )
+
+    fun mapSearchItems(items: List<InfoItem>): SearchOutcome {
+        val tracks = mutableListOf<LyreonTrack>()
+        val playlists = mutableListOf<YtPlaylist>()
+        items.forEach { item ->
+            when (item) {
+                is StreamInfoItem -> mapInfoItem(item)?.let(tracks::add)
+                is PlaylistInfoItem -> playlists.add(
+                    YtPlaylist(
+                        url = item.url.orEmpty(),
+                        name = item.name.orEmpty(),
+                        uploader = item.uploaderName.orEmpty(),
+                        thumbnailUrl = item.thumbnailUrl.orEmpty(),
+                        streamCount = item.streamCount,
+                    ),
+                )
+                else -> Unit
+            }
+        }
+        return SearchOutcome(
+            tracks = tracks.distinctBy { it.videoId }.filter { it.durationSec > 0 },
+            playlists = playlists.distinctBy { it.url },
+        )
+    }
+
+    suspend fun suggestions(query: String): List<String> = withContext(Dispatchers.IO) {
+        if (query.isBlank()) return@withContext emptyList()
+        runCatching {
+            ServiceList.YouTube.suggestionExtractor.suggestionList(query)
+        }.getOrDefault(emptyList()).take(10)
+    }
+
+    // ------------------------------------------------------------------
+    // Metadata & resolusi stream
+    // ------------------------------------------------------------------
+
+    private suspend fun streamInfo(videoId: String): StreamInfo = withContext(Dispatchers.IO) {
+        StreamInfo.getInfo(ServiceList.YouTube, "https://www.youtube.com/watch?v=$videoId")
+    }
+
+    /** Info lengkap: track + rekomendasi terkait (radio). */
+    suspend fun bundle(videoId: String): YtTrackBundle {
+        val info = streamInfo(videoId)
+        val track = LyreonTrack(
+            videoId = videoId,
+            title = info.name.orEmpty(),
+            artist = info.uploaderName.orEmpty(),
+            album = "",
+            durationSec = info.duration,
+            thumbnailUrl = bestThumb(info.thumbnails),
+        )
+        val related = info.relatedItems.orEmpty()
+            .filterIsInstance<StreamInfoItem>()
+            .mapNotNull { mapInfoItem(it) }
+            .filter { it.durationSec > 0 }
+            .distinctBy { it.videoId }
+            .take(25)
+        // Panen konteks benih: tagar resmi + tagar deskripsi + kategori —
+        // bahan bakar algoritma selera (semuanya gratis dari halaman yang sama).
+        val descText = runCatching { info.description?.content.orEmpty() }.getOrDefault("")
+        val seedTags = runCatching { info.tags.orEmpty() }.getOrDefault(emptyList())
+        val seedCategory = runCatching { info.category.orEmpty() }.getOrDefault("")
+        val seedHashtags = com.lyreon.app.data.taste.MusicTextAnalyzer
+            .hashtagsOf(descText + " " + seedTags.joinToString(" "))
+        return YtTrackBundle(track, related, seedTags, seedHashtags, seedCategory)
+    }
+
+    suspend fun relatedOf(videoId: String): List<LyreonTrack> {
+        val primary = runCatching { bundle(videoId).related }.getOrDefault(emptyList())
+        if (primary.isNotEmpty()) return primary
+        // FALLBACK InnerTube (endpoint /next) untuk radio bila Metrolist gagal
+        return runCatching { fallback.related(videoId) }.getOrDefault(emptyList())
+    }
+
+    /** Pencarian lagu cepat (filter SONGS) — untuk query persona algoritma. */
+    suspend fun searchTracks(query: String, limit: Int = 20): List<LyreonTrack> =
+        withContext(Dispatchers.IO) {
+            val primary = runCatching {
+                val s = newSearchSession(query, SearchFilter.SONGS)
+                mapSearchItems(s.first()).tracks.take(limit)
+            }.getOrNull()
+            if (!primary.isNullOrEmpty()) return@withContext primary
+            // FALLBACK InnerTube bila Metrolist gagal / kosong
+            Log.w(TAG, "searchTracks: Metrolist kosong/gagal ($query) → fallback InnerTube")
+            fallback.search(query, SearchFilter.SONGS, limit)
+        }
+
+    /**
+     * Blocking — dipanggil dari ResolvingDataSource (thread loader ExoPlayer)
+     * dan dari layanan unduhan. Memilih stream audio-only sesuai kualitas.
+     *
+     * Jalur utama = MetrolistExtractor (NewPipe). Bila gagal/kosong, FALLBACK ke
+     * ekstraktor InnerTube langsung ke Google sebagai cadangan utama (tanpa server perantara).
+     */
+    fun resolveAudioBlocking(videoId: String, quality: AudioQuality): ResolvedAudio {
+        val info = try {
+            StreamInfo.getInfo(ServiceList.YouTube, "https://www.youtube.com/watch?v=$videoId")
+        } catch (e: Exception) {
+            // Metrolist gagal → coba jalur fallback InnerTube
+            return fallbackResolve(videoId, quality, cause = e)
+        }
+        val streams: List<AudioStream> = info.audioStreams.orEmpty()
+            .filter { it.content.isNullOrBlank().not() }
+
+        if (streams.isEmpty()) {
+            // Metrolist OK tapi tanpa stream audio → fallback InnerTube
+            return fallbackResolve(videoId, quality, cause = null)
+        }
+
+        fun bitrateOf(s: AudioStream): Int = when {
+            s.averageBitrate > 0 -> s.averageBitrate
+            s.bitrate > 0 -> s.bitrate
+            else -> -1
+        }
+
+        val scored = streams.map { it to bitrateOf(it) }
+
+        val chosen = when (quality) {
+            AudioQuality.HIGH -> scored
+                .filter { it.second > 0 }
+                .maxWithOrNull(compareBy<Pair<AudioStream, Int>> { it.second }
+                    .thenBy { if (it.first.format?.suffix == "m4a") 1 else 0 })
+            AudioQuality.DATA_SAVER -> scored
+                .filter { it.second > 0 }
+                .minWithOrNull(compareBy<Pair<AudioStream, Int>> { it.second }
+                    .thenBy { if (it.first.format?.suffix == "m4a") 0 else 1 })
+            AudioQuality.BALANCED -> scored
+                .filter { it.second > 0 }
+                .minWithOrNull(
+                    compareBy<Pair<AudioStream, Int>> { kotlin.math.abs(it.second - 128) }
+                        .thenBy { if (it.first.format?.suffix == "m4a") -1 else 0 },
+                )
+        } ?: scored.first()
+
+        val stream = chosen.first
+        val url = stream.content
+        val format = stream.format
+        val suffix = format?.suffix ?: "m4a"
+        val mime = format?.mimeType ?: "audio/mp4"
+        val bitrateKbps = (chosen.second.takeIf { it > 0 } ?: 128)
+
+        // Kandidat cadangan dari keluarga format BERBEDA (m4a ↔ webm/opus),
+        // bitrate sedekat mungkin dengan pilihan utama.
+        val fallbackUrl = streams
+            .filter { it !== stream && (it.format?.suffix ?: suffix) != suffix }
+            .map { it to bitrateOf(it) }
+            .filter { it.second > 0 }
+            .minByOrNull { kotlin.math.abs(it.second - bitrateKbps) }
+            ?.first?.content
+            ?.takeUnless { it.isBlank() || it == url }
+
+        return ResolvedAudio(
+            videoId = videoId,
+            url = url,
+            mimeType = mime,
+            suffix = suffix,
+            bitrateKbps = bitrateKbps,
+            expiresAtMs = parseExpire(url),
+            fallbackUrl = fallbackUrl,
+        )
+    }
+
+    /** Ekstraktor cadangan InnerTube (langsung ke Google). */
+    private val fallback: com.lyreon.app.yt.innertube.InnertubeFallback by lazy {
+        com.lyreon.app.yt.innertube.InnertubeFallback()
+    }
+
+    /** Resolve via jalur InnerTube; melempar IOException bila gagal juga. */
+    private fun fallbackResolve(videoId: String, quality: AudioQuality, cause: Throwable?): ResolvedAudio {
+        val resolved = runCatching { fallback.resolveAudioBlocking(videoId, quality) }.getOrNull()
+        if (resolved != null) {
+            Log.i("InnertubeFallback", "fallback OK untuk $videoId")
+            return resolved.copy(videoId = videoId)
+        }
+        throw IOException(
+            "Stream tidak tersedia (Metrolist + InnerTube gagal) untuk $videoId",
+            cause,
+        )
+    }
+
+    private fun parseExpire(url: String): Long {
+        val exp = Regex("[?&]expire=(\\d{9,})").find(url)?.groupValues?.get(1)?.toLongOrNull()
+        val now = System.currentTimeMillis()
+        return if (exp != null && exp > 0) exp * 1000L else now + 5L * 60L * 60L * 1000L
+    }
+
+    /**
+     * Mode VIDEO: pilih stream muxed (video+audio dalam satu URL, itag 18/22 gaya lama)
+     * terbaik hingga 720p, prefer MP4. Null jika tak ada → UI kembali ke mode audio.
+     */
+    suspend fun resolveVideoMuxed(videoId: String): String? = withContext(Dispatchers.IO) {
+        val info = runCatching { streamInfo(videoId) }.getOrNull() ?: return@withContext null
+        val muxed = info.videoStreams.orEmpty()
+            .filter { !it.isVideoOnly && !it.content.isNullOrBlank() }
+        if (muxed.isEmpty()) return@withContext null
+
+        fun resOf(s: VideoStream): Int =
+            Regex("(\\d{3,4})p").find(s.resolution.orEmpty())
+                ?.groupValues?.get(1)?.toIntOrNull() ?: 0
+
+        val best = muxed
+            .filter { resOf(it) in 1..720 }
+            .maxWithOrNull(
+                compareBy(
+                    { s: VideoStream -> if (s.format?.suffix == "mp4") 1 else 0 },
+                    { s: VideoStream -> resOf(s) },
+                ),
+            )
+            ?: muxed.minByOrNull { resOf(it) }
+        best?.content
+    }
+
+    // ------------------------------------------------------------------
+    // Playlist YouTube (buka & impor)
+    // ------------------------------------------------------------------
+
+    data class YtPlaylistDetail(
+        val name: String,
+        val uploader: String,
+        val thumbnailUrl: String,
+        val tracks: List<LyreonTrack>,
+    )
+
+    suspend fun playlistDetail(url: String): YtPlaylistDetail = withContext(Dispatchers.IO) {
+        val primary = runCatching {
+            val info = PlaylistInfo.getInfo(ServiceList.YouTube, url)
+            val tracks = info.relatedItems.orEmpty()
+                .filterIsInstance<StreamInfoItem>()
+                .mapNotNull { mapInfoItem(it) }
+                .filter { it.durationSec > 0 }
+                .distinctBy { it.videoId }
+            YtPlaylistDetail(
+                name = info.name.orEmpty(),
+                uploader = info.uploaderName.orEmpty(),
+                thumbnailUrl = info.thumbnailUrl.orEmpty(),
+                tracks = tracks,
+            )
+        }.getOrNull()
+        if (primary != null && (primary.tracks.isNotEmpty() || primary.name.isNotBlank())) return@withContext primary
+        // FALLBACK InnerTube bila Metrolist gagal
+        Log.w(TAG, "playlistDetail: Metrolist gagal ($url) → fallback InnerTube")
+        val pid = fallback.playlistIdOf(url)
+        val tracks = fallback.playlist(pid)
+        YtPlaylistDetail(
+            name = "Playlist",
+            uploader = "",
+            thumbnailUrl = "",
+            tracks = tracks,
+        )
+    }
+
+    // ------------------------------------------------------------------
+    // Home feed
+    // ------------------------------------------------------------------
+
+    /** Quick picks: terkait lagu terakhir yang diputar, atau kurasi awal. */
+    suspend fun quickPicks(seedVideoId: String?): List<LyreonTrack> = withContext(Dispatchers.IO) {
+        if (!seedVideoId.isNullOrBlank()) {
+            val rel = relatedOf(seedVideoId)
+            if (rel.isNotEmpty()) return@withContext rel.take(12)
+        }
+        val primary = runCatching {
+            val session = newSearchSession("today's hits music", SearchFilter.SONGS)
+            mapSearchItems(session.first()).tracks.take(12)
+        }.getOrNull()
+        if (!primary.isNullOrEmpty()) return@withContext primary
+        // FALLBACK InnerTube bila Metrolist gagal
+        fallback.search("today's hits music", SearchFilter.SONGS, 12)
+    }
+
+    /** Movement/genre section — kueri YouTube Music sesuai desain. */
+    suspend fun movement(query: String, limit: Int = 14): List<LyreonTrack> = withContext(Dispatchers.IO) {
+        val primary = runCatching {
+            val session = newSearchSession(query, SearchFilter.SONGS)
+            mapSearchItems(session.first()).tracks.take(limit)
+        }.getOrNull()
+        if (!primary.isNullOrEmpty()) return@withContext primary
+        // FALLBACK InnerTube bila Metrolist gagal
+        fallback.search(query, SearchFilter.SONGS, limit)
+    }
+
+    // ------------------------------------------------------------------
+    // Util
+    // ------------------------------------------------------------------
+
+    private fun bestThumb(images: List<org.schabi.newpipe.extractor.Image?>?): String {
+        if (images.isNullOrEmpty()) return ""
+        return images.filterNotNull()
+            .maxByOrNull { it.height }
+            ?.url.orEmpty()
+    }
+
+    private fun mapInfoItem(item: StreamInfoItem): LyreonTrack? {
+        val url = item.url ?: return null
+        val duration = item.duration
+        val vid = videoIdOf(url)
+        return LyreonTrack(
+            videoId = vid,
+            title = item.name.orEmpty(),
+            artist = item.uploaderName.orEmpty(),
+            album = "",
+            durationSec = if (duration > 0) duration else 0L,
+            thumbnailUrl = thumbHi(vid, item.thumbnailUrl),
+        )
+    }
+
+    /**
+     * Thumbnail kualitas tinggi langsung dari CDN YouTube (480×360),
+     * menggantikan thumbnail bawaan extractor yang sering resolusi rendah.
+     */
+    private fun thumbHi(videoId: String, fallback: String? = null): String =
+        if (videoId.length in 6..20) {
+            "https://i.ytimg.com/vi/$videoId/hqdefault.jpg"
+        } else {
+            fallback.orEmpty()
+        }
+
+    // ------------------------------------------------------------------
+    // Cache URL stream (expire ±6 jam) — dipakai player & unduhan
+    // ------------------------------------------------------------------
+
+    private val streamCache = ConcurrentHashMap<String, ResolvedAudio>()
+    private val locks = ConcurrentHashMap<String, Any>()
+
+    @Volatile
+    var defaultQuality: AudioQuality = AudioQuality.BALANCED
+
+    /** Resolve dengan cache + anti-duplikasi request + satu serangan ulang. Boleh blocking. */
+    fun resolveCachedBlocking(videoId: String, quality: AudioQuality = defaultQuality): ResolvedAudio {
+        val fresh = streamCache[videoId]
+        if (fresh != null && fresh.expiresAtMs - 60_000L > System.currentTimeMillis()) {
+            return fresh
+        }
+        val lock = locks.getOrPut(videoId) { Any() }
+        synchronized(lock) {
+            val cached = streamCache[videoId]
+            if (cached != null && cached.expiresAtMs - 60_000L > System.currentTimeMillis()) {
+                return cached
+            }
+            // Percobaan ke-2 langsung di sini: kegagalan sesaat & token basi (pot/n-sig)
+            // sering sembuh dengan ekstraksi ulang yang benar-benar baru.
+            val resolved = runCatching {
+                resolveAudioBlocking(videoId, quality)
+            }.recoverCatching {
+                Thread.sleep(350L)
+                resolveAudioBlocking(videoId, quality)
+            }.getOrThrow()
+            streamCache[videoId] = resolved
+            return resolved
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Trending per negara (halaman "Trending" YouTube, region via ?gl=)
+    // ------------------------------------------------------------------
+
+    suspend fun trending(country: String): List<LyreonTrack> = withContext(Dispatchers.IO) {
+        runCatching {
+            val url = "https://www.youtube.com/feed/trending?gl=${country.uppercase()}"
+            val handler = YoutubeTrendingLinkHandlerFactory().fromUrl(url)
+            val extractor = YoutubeTrendingExtractor(ServiceList.YouTube, handler, "Trending")
+            // Region TIDAK dibaca dari ?gl= URL — harus dipaksa per-instance,
+            // kalau tidak extractor selalu pakai content country default global.
+            extractor.forceContentCountry(ContentCountry(country.uppercase()))
+            extractor.fetchPage()
+            extractor.initialPage.items.orEmpty()
+                .filterIsInstance<StreamInfoItem>()
+                .mapNotNull { mapInfoItem(it) }
+                .filter { it.durationSec > 60L } // buang shorts/klip pendek
+                .distinctBy { it.videoId }
+                .take(24)
+        }.getOrDefault(emptyList())
+    }
+
+    fun invalidate(videoId: String) {
+        streamCache.remove(videoId)
+        fallback.invalidate(videoId)
+    }
+
+    suspend fun warmUp(vararg videoIds: String) = withContext(Dispatchers.IO) {
+        videoIds.forEach { id ->
+            runCatching { resolveCachedBlocking(id) }
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Artis populer per benua — YouTube Music Charts (InnerTube FEmusic_charts)
+    //
+    // Diagram alur (mengikuti cara InnerTune/Spotube):
+    //   GET music.youtube.com  →  regex INNERTUBE_API_KEY  →
+    //   POST /youtubei/v1/browse?key=…  { browseId: "FEmusic_charts", gl }
+    //   →  sectionListRenderer → musicShelfRenderer "Top artists"
+    //
+    // Bila charts tidak tersedia/gagal parse → daftar kurasi per wilayah,
+    // sehingga kartu artis TIDAK PERNAH kosong.
+    // ------------------------------------------------------------------
+
+    data class ArtistCard(
+        val name: String,
+        val thumbUrl: String,
+        val subtitle: String,
+    )
+
+    /** Wilayah kartu artis di tab Search (label di-UI per bahasa). */
+    enum class ArtistRegion(val gl: String) {
+        EUROPE("GB"),
+        ASIA("ID"),
+        AMERICA("US"),
+        AFRICA("ZA"),
+        ARAB("SA"),
+    }
+
+    @Volatile
+    private var innertubeKey: String? = null
+    private val chartsLock = Any()
+    private val chartsCache = HashMap<String, Pair<Long, List<ArtistCard>>>()
+
+    suspend fun topArtists(region: ArtistRegion): List<ArtistCard> = withContext(Dispatchers.IO) {
+        synchronized(chartsLock) {
+            chartsCache[region.gl]
+                ?.takeIf { System.currentTimeMillis() - it.first < 6L * 3600_000L }
+        }?.let { return@withContext it.second }
+
+        val live = runCatching { fetchChartsTopArtists(region.gl) }.getOrDefault(emptyList())
+        // Foto profil asli kanal diisi untuk entri tanpa foto (via pencarian kanal)
+        val result = enrichArtistAvatars(live.ifEmpty { seedArtists(region) })
+        synchronized(chartsLock) { chartsCache[region.gl] = System.currentTimeMillis() to result }
+        result
+    }
+
+    private fun fetchInnertubeKey(): String {
+        val cached = innertubeKey
+        if (cached != null) return cached
+        val key = runCatching {
+            val req = Request.Builder()
+                .url("https://music.youtube.com/")
+                .header("User-Agent", LyreonHttp.USER_AGENT)
+                .get().build()
+            LyreonHttp.streamClient.newCall(req).execute().use { resp ->
+                val html = resp.body.string()
+                Regex("\"INNERTUBE_API_KEY\"\\s*:\\s*\"([^\"]+)\"")
+                    .find(html)?.groupValues?.getOrNull(1)
+            }
+        }.getOrNull()
+        // Kunci WEB_REMIX publik (dicadangkan bila halaman gagal diambil)
+        return (key ?: "AIzaSyC9XL3ZjWddXya6X74dJoCTL-WEYFDNX30").also { innertubeKey = it }
+    }
+
+    private fun fetchChartsTopArtists(gl: String): List<ArtistCard> {
+        val key = fetchInnertubeKey()
+        val payload = JSONObject()
+            .put(
+                "context",
+                JSONObject().put(
+                    "client",
+                    JSONObject()
+                        .put("clientName", "WEB_REMIX")
+                        .put("clientVersion", "1.20260804.01.00")
+                        .put("hl", "en")
+                        .put("gl", gl),
+                ),
+            )
+            .put("browseId", "FEmusic_charts")
+            .toString()
+            .toRequestBody("application/json".toMediaType())
+
+        val req = Request.Builder()
+            .url("https://music.youtube.com/youtubei/v1/browse?key=$key")
+            .header("User-Agent", LyreonHttp.USER_AGENT)
+            .header("Origin", "https://music.youtube.com")
+            .post(payload)
+            .build()
+
+        val root = LyreonHttp.streamClient.newCall(req).execute().use { resp ->
+            if (!resp.isSuccessful) {
+                Log.w(TAG, "fetchChartsTopArtists(gl=$gl): browse gagal, HTTP ${resp.code}")
+                return emptyList()
+            }
+            JSONObject(resp.body.string())
+        }
+
+        fun textOf(node: JSONObject?, key: String): String {
+            val runs = node?.optJSONObject(key)?.optJSONArray("runs") ?: return ""
+            val sb = StringBuilder()
+            for (i in 0 until runs.length()) sb.append(runs.optJSONObject(i)?.optString("text").orEmpty())
+            return sb.toString()
+        }
+
+        val tabs = root.optJSONObject("contents")
+            ?.optJSONObject("singleColumnBrowseResultsRenderer")
+            ?.optJSONArray("tabs") ?: return emptyList()
+
+        for (t in 0 until tabs.length()) {
+            val sections = tabs.optJSONObject(t)
+                ?.optJSONObject("tabRenderer")
+                ?.optJSONObject("content")
+                ?.optJSONObject("sectionListRenderer")
+                ?.optJSONArray("contents") ?: continue
+
+            for (s in 0 until sections.length()) {
+                val shelf = sections.optJSONObject(s)?.optJSONObject("musicShelfRenderer") ?: continue
+                val title = textOf(shelf.optJSONObject("title"), "text")
+                if (!title.contains("artist", ignoreCase = true)) continue
+
+                val items = shelf.optJSONArray("contents") ?: continue
+                val out = ArrayList<ArtistCard>(12)
+                for (i in 0 until items.length()) {
+                    val row = items.optJSONObject(i)
+                        ?.optJSONObject("musicResponsiveListItemRenderer") ?: continue
+                    val flex = row.optJSONArray("flexColumns") ?: continue
+                    val name = textOf(flex.optJSONObject(0), "musicResponsiveListItemFlexColumnRenderer")
+                    if (name.isBlank()) continue
+                    val sub = textOf(flex.optJSONObject(1), "musicResponsiveListItemFlexColumnRenderer")
+                    val thumbs = row.optJSONObject("thumbnail")
+                        ?.optJSONObject("musicThumbnailRenderer")
+                        ?.optJSONObject("thumbnail")
+                        ?.optJSONArray("thumbnails")
+                    var thumb = ""
+                    var bestW = -1
+                    if (thumbs != null) {
+                        for (k in 0 until thumbs.length()) {
+                            val th = thumbs.optJSONObject(k) ?: continue
+                            val w = th.optInt("width", 0)
+                            if (w > bestW) {
+                                bestW = w
+                                thumb = th.optString("url").orEmpty()
+                            }
+                        }
+                    }
+                    out += ArtistCard(name = name, thumbUrl = thumb, subtitle = sub)
+                    if (out.size >= 12) break
+                }
+                if (out.isNotEmpty()) return out
+            }
+        }
+        return emptyList()
+    }
+
+    /** Kurasi bila charts wilayah tak tersedia — kartu tetap terisi bermakna. */
+    private fun seedArtists(region: ArtistRegion): List<ArtistCard> = when (region) {        ArtistRegion.EUROPE -> listOf(
+            "Dua Lipa", "Ed Sheeran", "Coldplay", "Adele", "Calvin Harris",
+            "David Guetta", "Rita Ora", "Stromae", "Zara Larsson", "Clean Bandit",
+        )
+        ArtistRegion.ASIA -> listOf(
+            "Tulus", "Juicy Luicy", "Hindia", "Bernadya", "Nadin Amizah",
+            "YOASOBI", "BLACKPINK", "Ado", "Sheila On 7", "Raisa",
+        )
+        ArtistRegion.AMERICA -> listOf(
+            "Bad Bunny", "Taylor Swift", "Billie Eilish", "The Weeknd", "Bruno Mars",
+            "Kendrick Lamar", "Shakira", "Ariana Grande", "Drake", "SZA",
+        )
+        ArtistRegion.AFRICA -> listOf(
+            "Tyla", "Burna Boy", "Rema", "Tems", "Asake",
+            "Ayra Starr", "Davido", "Wizkid", "Amaarae", "Uncle Waffles",
+        )
+        ArtistRegion.ARAB -> listOf(
+            "Amr Diab", "Nancy Ajram", "Elissa", "Tamer Hosny", "Fairuz",
+            "Mohamed Ramadan", "Saad Lamjarred", "Assala", "Hussain Al Jassmi", "Cairokee",
+        )
+    }.map { ArtistCard(name = it, thumbUrl = "", subtitle = "") }
+
+    // ------------------------------------------------------------------
+    // Foto profil kanal (avatar artis/pengunggah)
+    // ------------------------------------------------------------------
+
+    private val uploaderAvatarCache = ConcurrentHashMap<String, String>()
+    private val channelAvatarCache = ConcurrentHashMap<String, String>()
+
+    private fun absUrl(url: String): String = if (url.startsWith("//")) "https:$url" else url
+
+    /** Foto kanal pengunggah lagu (untuk bar artis di Now Playing). */
+    suspend fun uploaderAvatar(videoId: String): String? = withContext(Dispatchers.IO) {
+        uploaderAvatarCache[videoId]?.let { return@withContext it.ifBlank { null } }
+        val url = runCatching {
+            val info = streamInfo(videoId)
+            absUrl(bestThumb(info.uploaderAvatars).ifBlank { info.uploaderAvatarUrl.orEmpty() })
+        }.getOrDefault("")
+        uploaderAvatarCache[videoId] = url
+        url.ifBlank { null }
+    }
+
+    /**
+     * Profil kanal YouTube dari nama artis → (avatarUrl, subtitle subscriber).
+     * Dua langkah: cari kanal (filter "channels") → buka ChannelInfo untuk
+     * avatars + jumlah subscriber (ChannelInfoItem fork ini tak membawa foto).
+     */
+    suspend fun channelProfile(artistName: String): Pair<String, String>? = withContext(Dispatchers.IO) {
+        val key = artistName.lowercase(java.util.Locale.ROOT)
+        channelAvatarCache[key]?.let { cached ->
+            if (cached.isBlank()) return@withContext null
+            val parts = cached.split('|', limit = 3)
+            return@withContext (parts.getOrElse(0) { "" } to parts.getOrElse(1) { "" })
+        }
+        val result = runCatching {
+            val cf = resolveContentFilter("channels")
+            val extractor = runCatching {
+                ServiceList.YouTube.getSearchExtractor(artistName, listOfNotNull(cf), null)
+            }.getOrElse { ServiceList.YouTube.getSearchExtractor(artistName) }
+            extractor.fetchPage()
+            val channelUrl = extractor.initialPage.items
+                .filterIsInstance<org.schabi.newpipe.extractor.channel.ChannelInfoItem>()
+                .firstOrNull()
+                ?.url.orEmpty()
+            if (channelUrl.isBlank()) {
+                Log.w(TAG, "channelProfile('$artistName'): search kanal kosong (0 hasil filter 'channels')")
+                null
+            } else {
+                val info = org.schabi.newpipe.extractor.channel.ChannelInfo.getInfo(channelUrl)
+                val avatar = absUrl(bestThumb(info.avatars))
+                if (avatar.isBlank()) {
+                    Log.w(TAG, "channelProfile('$artistName'): ChannelInfo OK tapi avatars kosong — url=$channelUrl")
+                    null
+                } else {
+                    avatar to formatSubscribers(runCatching { info.subscriberCount }.getOrDefault(-1L))
+                }
+            }
+        }.onFailure { e ->
+            Log.e(TAG, "channelProfile('$artistName') exception: ${e.javaClass.simpleName} — ${e.message}")
+        }.getOrNull()
+        channelAvatarCache[key] = result?.let { "${it.first}|${it.second}" } ?: ""
+        result
+    }
+
+    private fun formatSubscribers(subs: Long): String = when {
+        subs < 0L -> ""
+        subs >= 1_000_000L -> "%.1fM subscribers".format(subs / 1_000_000f)
+        subs >= 1_000L -> "%.0fK subscribers".format(subs / 1_000f)
+        else -> "$subs subscribers"
+    }
+
+    /** Isi foto profil untuk kartu tanpa foto — resolve SEMUA secara paralel (tanpa cap). */
+    private suspend fun enrichArtistAvatars(list: List<ArtistCard>): List<ArtistCard> = coroutineScope {
+        list.map { card ->
+            async {
+                if (card.thumbUrl.isBlank()) {
+                    val profile = channelProfile(card.name)
+                    if (profile != null) {
+                        card.copy(
+                            thumbUrl = profile.first,
+                            subtitle = card.subtitle.ifBlank { profile.second },
+                        )
+                    } else {
+                        card
+                    }
+                } else {
+                    card
+                }
+            }
+        }.awaitAll()
+    }
+}

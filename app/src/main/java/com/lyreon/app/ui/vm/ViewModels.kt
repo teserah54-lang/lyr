@@ -1,0 +1,770 @@
+package com.lyreon.app.ui.vm
+
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
+import com.lyreon.app.core.ServiceLocator
+import com.lyreon.app.data.db.DownloadEntity
+import com.lyreon.app.data.db.DownloadState
+import com.lyreon.app.data.db.PlaylistEntity
+import com.lyreon.app.data.model.EditorialSection
+import com.lyreon.app.data.model.LyreonGenre
+import com.lyreon.app.data.model.LyreonTrack
+import com.lyreon.app.data.model.SearchFilter
+import com.lyreon.app.data.model.YtPlaylist
+import com.lyreon.app.data.settings.AudioQuality
+import com.lyreon.app.data.taste.MusicTextAnalyzer
+import com.lyreon.app.yt.YouTubeRepository
+import com.lyreon.app.yt.YtSearchSession
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+
+/** CompositionLocal global untuk ServiceLocator. */
+val LocalLyreon = staticCompositionLocalOf<ServiceLocator> {
+    error("LocalLyreon belum di-provide")
+}
+
+@Composable
+inline fun <reified VM : ViewModel> lyreonViewModel(
+    locator: ServiceLocator = LocalLyreon.current,
+    key: String? = null,
+    crossinline build: (ServiceLocator) -> VM,
+): VM = viewModel(key = key, factory = viewModelFactory { initializer { build(locator) } })
+
+// ======================================================================
+// HOME
+// ======================================================================
+
+data class HomeUiState(
+    val loading: Boolean = true,
+    val quickPicks: List<LyreonTrack> = emptyList(),
+    val selectedGenreId: String? = null,
+    val movementTracks: List<LyreonTrack> = emptyList(),
+    val movementLoading: Boolean = false,
+    val history: List<LyreonTrack> = emptyList(),
+    val likedCount: Int = 0,
+    val personalized: Boolean = false,
+    /** Algoritma selera: lagu "Untuk Kamu" + chip vibe personality. */
+    val personaTracks: List<LyreonTrack> = emptyList(),
+    val personaChips: List<String> = emptyList(),
+    val personaActive: Boolean = false,
+    /** Artis populer per benua (dipindah dari Search — dimuat malas saat seksi terlihat) */
+    val artistRegion: YouTubeRepository.ArtistRegion = YouTubeRepository.ArtistRegion.ASIA,
+    val artists: List<YouTubeRepository.ArtistCard> = emptyList(),
+    val artistsLoading: Boolean = false,
+    val artistSectionShown: Boolean = false,
+    val error: String? = null,
+)
+
+class HomeViewModel(private val locator: ServiceLocator) : ViewModel() {
+
+    private val _state = MutableStateFlow(HomeUiState())
+    val state: StateFlow<HomeUiState> = _state.asStateFlow()
+
+    private val movementCache = mutableMapOf<String, List<LyreonTrack>>()
+
+    init {
+        refresh()
+        observeLocal()
+    }
+
+    private fun observeLocal() {
+        viewModelScope.launch {
+            combine(
+                locator.library.history,
+                locator.library.likedTracks,
+            ) { history, liked -> history to liked }
+                .collect { (history, liked) ->
+                    _state.update { it.copy(history = history.take(10), likedCount = liked.size) }
+                }
+        }
+        viewModelScope.launch {
+            locator.library.history.collect { hist ->
+                if (_state.value.quickPicks.isEmpty() && !picksRequested) {
+                    picksRequested = true
+                    loadQuickPicks(hist.firstOrNull()?.videoId)
+                }
+            }
+        }
+    }
+
+    @Volatile
+    private var picksRequested = false
+
+    fun refresh() {
+        viewModelScope.launch {
+            _state.update { it.copy(loading = true, error = null) }
+            // Personalisasi: benih = lagu yang PALING SERING diputar pengguna,
+            // lalu ambil trek terkait dari YouTube. Tanpa riwayat → populer umum.
+            val seed = runCatching {
+                locator.library.mostPlayed.first().firstOrNull()?.videoId
+            }.getOrNull()
+            val picks = runCatching {
+                locator.youtube.quickPicks(seed)
+            }.getOrDefault(emptyList())
+            _state.update {
+                it.copy(
+                    loading = false,
+                    quickPicks = picks.ifEmpty { it.quickPicks },
+                    personalized = picks.isNotEmpty() && seed != null,
+                    error = if (picks.isEmpty() && it.quickPicks.isEmpty()) {
+                        "Tidak bisa memuat feed. Periksa koneksi."
+                    } else null,
+                )
+            }
+            loadPersona()
+            autoPickPersonaGenre()
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Algoritma selera di Home — "Untuk Kamu" dari query persona +
+    // chip vibe (hashtag/token yang ditulis kreator di deskripsi video).
+    // ------------------------------------------------------------------
+
+    private var personaCache: Pair<Long, List<LyreonTrack>>? = null
+    private var autoGenrePicked = false
+
+    fun loadPersona(force: Boolean = false) {
+        viewModelScope.launch {
+            val taste = locator.taste
+            val chips = taste.personalityChips(6)
+            val profile = taste.profile.value
+            if (!profile.isRich) {
+                _state.update { it.copy(personaChips = chips, personaActive = false) }
+                return@launch
+            }
+            val cached = personaCache
+                ?.takeIf { !force && System.currentTimeMillis() - it.first < 20L * 60_000L }
+            val tracks = cached?.second ?: run {
+                val query = taste.personalityQuery() ?: return@launch
+                locator.youtube.searchTracks(query, limit = 18)
+                    .distinctBy { it.videoId }
+                    .map { it to taste.scoreTrack(it) }
+                    .sortedByDescending { it.second }
+                    .map { it.first }
+                    .take(10)
+                    .also { personaCache = System.currentTimeMillis() to it }
+            }
+            _state.update {
+                it.copy(
+                    personaTracks = tracks,
+                    personaChips = chips,
+                    personaActive = tracks.isNotEmpty(),
+                )
+            }
+        }
+    }
+
+    /** Genre rail: pilih otomatis (sekali) genre yang paling cocok dgn personality. */
+    private fun autoPickPersonaGenre() {
+        if (autoGenrePicked || _state.value.selectedGenreId != null) return
+        autoGenrePicked = true
+        val top = locator.taste.profile.value.topGenres(1).firstOrNull() ?: return
+        com.lyreon.app.data.model.LyreonArchive.genres
+            .firstOrNull {
+                it.name.equals(top, true) || it.searchQuery.contains(top, true)
+            }
+            ?.let { selectGenre(it) }
+    }
+
+    // ------------------------------------------------------------------
+    // Artis populer per benua — dipindah dari tab Search ke Home supaya
+    // tab Search tetap ringan & bebas force close.
+    // DIMUAT MALAS: fetch baru berjalan saat seksinya benar-benar dirender.
+    // ------------------------------------------------------------------
+
+    private val artistCache = HashMap<YouTubeRepository.ArtistRegion, List<YouTubeRepository.ArtistCard>>()
+
+    /** Dipanggil sekali saat seksi artis muncul di layar (LaunchedEffect). */
+    fun ensureArtistSection() {
+        if (_state.value.artistSectionShown) return
+        _state.update { it.copy(artistSectionShown = true) }
+        // Tunda sejenak agar greeting/persona Home stabil dulu — anti jank
+        viewModelScope.launch {
+            kotlinx.coroutines.delay(600L)
+            selectArtistRegion(defaultArtistRegion())
+        }
+    }
+
+    private fun defaultArtistRegion(): YouTubeRepository.ArtistRegion =
+        when (com.lyreon.app.core.LocaleHelper.currentTag(locator.app).lowercase()) {
+            "in", "id", "ms", "zh", "ja", "hi" -> YouTubeRepository.ArtistRegion.ASIA
+            "en" -> YouTubeRepository.ArtistRegion.AMERICA
+            else -> YouTubeRepository.ArtistRegion.ASIA
+        }
+
+    fun selectArtistRegion(region: YouTubeRepository.ArtistRegion) {
+        val cached = artistCache[region]
+        _state.update { it.copy(artistRegion = region) }
+        if (cached != null) {
+            _state.update { it.copy(artists = cached, artistsLoading = false) }
+            return
+        }
+        if (_state.value.artistsLoading) return
+        viewModelScope.launch {
+            _state.update { it.copy(artistsLoading = true) }
+            val artists = runCatching { locator.youtube.topArtists(region) }
+                .getOrDefault(emptyList())
+            artistCache[region] = artists
+            _state.update {
+                if (it.artistRegion == region) it.copy(artists = artists, artistsLoading = false)
+                else it.copy(artistsLoading = false)
+            }
+        }
+    }
+
+    private fun loadQuickPicks(seed: String?) {
+        viewModelScope.launch {
+            val picks = locator.youtube.quickPicks(seed)
+            if (picks.isNotEmpty()) {
+                _state.update { it.copy(quickPicks = picks, loading = false) }
+            }
+        }
+    }
+
+    fun selectGenre(genre: LyreonGenre?) {
+        if (genre == null) {
+            _state.update { it.copy(selectedGenreId = null, movementTracks = emptyList()) }
+            return
+        }
+        _state.update { it.copy(selectedGenreId = genre.id) }
+        loadMovement(genre)
+    }
+
+    fun loadMovement(genre: LyreonGenre) {
+        val cached = movementCache[genre.id]
+        if (cached != null) {
+            _state.update { it.copy(movementTracks = cached, movementLoading = false) }
+            return
+        }
+        viewModelScope.launch {
+            _state.update { it.copy(movementLoading = true) }
+            val tracks = locator.youtube.movement(genre.searchQuery)
+            movementCache[genre.id] = tracks
+            _state.update {
+                if (it.selectedGenreId == genre.id) {
+                    it.copy(movementTracks = tracks, movementLoading = false)
+                } else it.copy(movementLoading = false)
+            }
+        }
+    }
+
+    fun playGenre(genre: LyreonGenre, play: (List<LyreonTrack>) -> Unit) {
+        viewModelScope.launch {
+            val tracks = movementCache[genre.id]
+                ?: locator.youtube.movement(genre.searchQuery).also { movementCache[genre.id] = it }
+            if (tracks.isNotEmpty()) play(tracks)
+        }
+    }
+
+    fun playEditorial(section: EditorialSection, play: (List<LyreonTrack>) -> Unit) {
+        viewModelScope.launch {
+            val tracks = locator.youtube.movement(section.searchQuery, limit = 20)
+            if (tracks.isNotEmpty()) play(tracks)
+        }
+    }
+}
+
+// ======================================================================
+// SEARCH
+// ======================================================================
+
+data class SearchUiState(
+    val query: String = "",
+    val filter: SearchFilter = SearchFilter.SONGS,
+    val suggestions: List<String> = emptyList(),
+    val tracks: List<LyreonTrack> = emptyList(),
+    val playlists: List<YtPlaylist> = emptyList(),
+    val searching: Boolean = false,
+    val loadingMore: Boolean = false,
+    val hasNext: Boolean = false,
+    val searched: Boolean = false,
+    val error: String? = null,
+    val trending: List<LyreonTrack> = emptyList(),
+    val trendingLoading: Boolean = false,
+    val trendingCountry: String = "",
+)
+
+class SearchViewModel(private val locator: ServiceLocator) : ViewModel() {
+
+    private val youtube: YouTubeRepository get() = locator.youtube
+
+    private val _state = MutableStateFlow(SearchUiState())
+    val state: StateFlow<SearchUiState> = _state.asStateFlow()
+
+    private var session: YtSearchSession? = null
+    private var suggestJob: Job? = null
+    private var searchJob: Job? = null
+
+    init {
+        // Hanya trending — jalur kartu artis dipindah ke Home agar tab ini ringan
+        loadTrending()
+    }
+
+    /** Pemetaan bahasa aplikasi → region YouTube untuk halaman Trending. */
+    private fun countryForLanguage(tag: String): String = when (tag.lowercase()) {
+        "id", "in" -> "ID"
+        "ms" -> "MY"
+        "hi" -> "IN"
+        "zh" -> "CN"
+        "ja" -> "JP"
+        "en" -> "US"
+        else -> java.util.Locale.getDefault().country.ifBlank { "US" }
+    }
+
+    fun loadTrending() {
+        if (_state.value.trendingLoading || _state.value.trending.isNotEmpty()) return
+        viewModelScope.launch {
+            val cc = countryForLanguage(com.lyreon.app.core.LocaleHelper.currentTag(locator.app))
+            val countryName = runCatching {
+                java.util.Locale("", cc).displayCountry.ifBlank { cc }
+            }.getOrDefault(cc)
+            _state.update { it.copy(trendingLoading = true, trendingCountry = countryName) }
+            val tracks = youtube.trending(cc)
+            _state.update {
+                it.copy(
+                    trendingLoading = false,
+                    trending = tracks,
+                    trendingCountry = if (tracks.isEmpty()) "" else countryName,
+                )
+            }
+        }
+    }
+
+    fun onQueryChange(q: String) {
+        _state.update { it.copy(query = q) }
+        suggestJob?.cancel()
+        if (q.length >= 2) {
+            suggestJob = viewModelScope.launch {
+                delay(280L)
+                val list = youtube.suggestions(q)
+                _state.update { it.copy(suggestions = list) }
+            }
+        } else {
+            _state.update { it.copy(suggestions = emptyList()) }
+        }
+    }
+
+    fun setFilter(filter: SearchFilter) {
+        _state.update { it.copy(filter = filter) }
+        if (_state.value.searched) search()
+    }
+
+    /**
+     * Cap reupload/varian judul-sama (mis. belasan reupload "speed up reverb"
+     * dari channel beda-beda) — kentara parah di filter SEMUA (unfiltered
+     * YouTube search). List ini yang dipakai juga buat antrean pas diputar,
+     * jadi cap di sini otomatis benerin dua-duanya.
+     */
+    private fun capNearDuplicates(tracks: List<LyreonTrack>, maxPerCoreTitle: Int = 2): List<LyreonTrack> {
+        val perCoreTitle = HashMap<String, Int>()
+        return tracks.filter { t ->
+            val ct = MusicTextAnalyzer.coreTitle(t.title)
+            if (ct.isBlank()) return@filter true
+            val n = perCoreTitle.getOrDefault(ct, 0)
+            if (n >= maxPerCoreTitle) return@filter false
+            perCoreTitle[ct] = n + 1
+            true
+        }
+    }
+
+    fun search(queryOverride: String? = null) {
+        val q = (queryOverride ?: _state.value.query).trim()
+        if (q.isBlank()) return
+        if (queryOverride != null) _state.update { it.copy(query = q) }
+        searchJob?.cancel()
+        searchJob = viewModelScope.launch {
+            // Query = sinyal niat — catat ke profil selera
+            runCatching { locator.taste.recordSearch(q) }
+            _state.update { it.copy(searching = true, error = null, suggestions = emptyList()) }
+            val s = youtube.newSearchSession(q, _state.value.filter)
+            session = s
+            runCatching {
+                val outcome = youtube.mapSearchItems(s.first())
+                // Relevan YouTube tetap dasar; afinitas selera menaikkan yang
+                // cocok (tokoh/gaya yang sering dicari) — mirip ranking YouTube.
+                val ranked = if (locator.taste.profile.value.isRich) {
+                    outcome.tracks
+                        .mapIndexed { i, t ->
+                            t to ((outcome.tracks.size - i) * 0.15f + locator.taste.scoreTrack(t))
+                        }
+                        .sortedByDescending { it.second }
+                        .map { it.first }
+                } else outcome.tracks
+                // dedupe videoId + cap reupload judul-sama (fix antrean kebanjiran duplikat)
+                val deduped = capNearDuplicates(ranked.distinctBy { it.videoId })
+                _state.update {
+                    it.copy(
+                        searching = false,
+                        searched = true,
+                        tracks = deduped,
+                        playlists = outcome.playlists,
+                        hasNext = s.hasNext,
+                    )
+                }
+            }.onFailure { e ->
+                // FALLBACK: Metrolist gagal → jalur InnerTube langsung ke Google
+                // (searchTracks memakai fallback internal; SONGS paling umum dipakai).
+                val fallbackTracks = runCatching {
+                    youtube.searchTracks(q, limit = 30)
+                }.getOrDefault(emptyList())
+                if (fallbackTracks.isNotEmpty()) {
+                    val deduped = capNearDuplicates(fallbackTracks.distinctBy { it.videoId })
+                    _state.update {
+                        it.copy(
+                            searching = false,
+                            searched = true,
+                            tracks = deduped,
+                            playlists = emptyList(),
+                            hasNext = false,
+                            error = null,
+                        )
+                    }
+                } else {
+                    _state.update {
+                        it.copy(
+                            searching = false,
+                            searched = true,
+                            error = "Pencarian gagal: ${e.message ?: "jaringan"}",
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    fun loadMore() {
+        val s = session ?: return
+        if (!s.hasNext || _state.value.loadingMore) return
+        viewModelScope.launch {
+            _state.update { it.copy(loadingMore = true) }
+            runCatching {
+                val outcome = youtube.mapSearchItems(s.more())
+                _state.update {
+                    it.copy(
+                        loadingMore = false,
+                        tracks = capNearDuplicates((it.tracks + outcome.tracks).distinctBy { t -> t.videoId }),
+                        playlists = (it.playlists + outcome.playlists).distinctBy { p -> p.url },
+                        hasNext = s.hasNext,
+                    )
+                }
+            }.onFailure {
+                _state.update { it.copy(loadingMore = false) }
+            }
+        }
+    }
+}
+
+// ======================================================================
+// LIBRARY
+// ======================================================================
+
+data class LibraryUiState(
+    val tab: LibraryTab = LibraryTab.FAVORIT,
+    val liked: List<LyreonTrack> = emptyList(),
+    val playlists: List<com.lyreon.app.data.db.PlaylistWithStats> = emptyList(),
+    val history: List<LyreonTrack> = emptyList(),
+    val downloads: List<DownloadEntity> = emptyList(),
+)
+
+enum class LibraryTab(val label: String) { FAVORIT("FAVORIT"), PLAYLIST("PLAYLIST"), RIWAYAT("RIWAYAT"), OFFLINE("OFFLINE"), LOCAL("LOKAL") }
+
+class LibraryViewModel(private val locator: ServiceLocator) : ViewModel() {
+
+    private val _state = MutableStateFlow(LibraryUiState())
+    val state: StateFlow<LibraryUiState> = _state.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            combine(
+                locator.library.likedTracks,
+                locator.library.playlistsWithStats,
+                locator.library.history,
+                locator.library.downloads,
+            ) { liked, playlists, history, downloads ->
+                LibraryUiState(
+                    tab = _state.value.tab,
+                    liked = liked,
+                    playlists = playlists,
+                    history = history,
+                    downloads = downloads,
+                )
+            }.collect { newState -> _state.update { newState } }
+        }
+    }
+
+    fun selectTab(tab: LibraryTab) = _state.update { it.copy(tab = tab) }
+
+    fun createPlaylist(name: String) {
+        viewModelScope.launch { locator.library.createPlaylist(name) }
+    }
+
+    fun deletePlaylist(entity: PlaylistEntity) {
+        viewModelScope.launch { locator.library.deletePlaylist(entity) }
+    }
+
+    fun renamePlaylist(id: Long, name: String) {
+        viewModelScope.launch { locator.library.renamePlaylist(id, name) }
+    }
+
+    fun clearHistory() {
+        viewModelScope.launch { locator.library.clearHistory() }
+    }
+}
+
+// ======================================================================
+// MUSIK LOKAL (file di penyimpanan perangkat)
+// ======================================================================
+
+data class LocalMusicUiState(
+    val permission: Boolean = true,
+    val scanning: Boolean = false,
+    val scannedOnce: Boolean = false,
+    val tracks: List<LyreonTrack> = emptyList(),
+    val trees: List<String> = emptyList(),
+)
+
+class LocalMusicViewModel(private val locator: ServiceLocator) : ViewModel() {
+
+    private val _state = MutableStateFlow(LocalMusicUiState())
+    val state: StateFlow<LocalMusicUiState> = _state.asStateFlow()
+
+    init {
+        refreshPermission()
+    }
+
+    /** Dipanggil saat layar tampil/resume — izin bisa berubah dari Settings. */
+    fun refreshPermission() {
+        val granted = locator.local.hasPermission()
+        _state.update { it.copy(permission = granted) }
+        if (granted && !_state.value.scannedOnce) scan()
+    }
+
+    fun onPermissionResult(granted: Boolean) {
+        _state.update { it.copy(permission = granted) }
+        if (granted) scan()
+    }
+
+    fun addTree(uri: android.net.Uri) {
+        locator.local.addTree(uri)
+        scan()
+    }
+
+    fun removeTree(treeUri: String) {
+        locator.local.removeTree(treeUri)
+        scan()
+    }
+
+    fun treeLabel(treeUri: String): String = locator.local.treeLabel(treeUri)
+
+    fun scan() {
+        if (_state.value.scanning) return
+        viewModelScope.launch {
+            _state.update { it.copy(scanning = true, trees = locator.local.trees()) }
+
+            // Gabung dua jalur: indeks MediaStore + folder kustom pilihan user
+            val found = dedupe(locator.local.scanMediaStore() + locator.local.scanTrees())
+            _state.update { it.copy(tracks = found, scannedOnce = true, permission = locator.local.hasPermission()) }
+
+            // Ekstraksi art lagu MediaStore, progresif per 8 lagu
+            found.filter {
+                it.thumbnailUrl.isBlank() &&
+                    !it.videoId.startsWith(com.lyreon.app.local.LocalMusicRepository.SAF_PREFIX)
+            }.chunked(8).forEach { chunk ->
+                val arts = chunk.mapNotNull { t ->
+                    locator.local.embeddedArt(t)?.let { art -> t.videoId to art }
+                }
+                if (arts.isNotEmpty()) {
+                    val map = arts.toMap()
+                    _state.update { st ->
+                        st.copy(
+                            tracks = st.tracks.map { t ->
+                                map[t.videoId]?.let { art -> t.copy(thumbnailUrl = art) } ?: t
+                            },
+                        )
+                    }
+                }
+                kotlinx.coroutines.yield()
+            }
+
+            // Enrich metadata lagu SAF (judul/artis/durasi asli + art) per 6 lagu
+            found.filter {
+                it.videoId.startsWith(com.lyreon.app.local.LocalMusicRepository.SAF_PREFIX)
+            }.chunked(6).forEach { chunk ->
+                val enriched = locator.local.enrichSafChunk(chunk)
+                val map = enriched.associateBy { it.videoId }
+                _state.update { st ->
+                    st.copy(tracks = st.tracks.map { t -> map[t.videoId] ?: t })
+                }
+                kotlinx.coroutines.yield()
+            }
+
+            _state.update { it.copy(scanning = false) }
+        }
+    }
+
+    /** Lagu yang sama bisa muncul di MediaStore DAN folder kustom — satukan. */
+    private fun dedupe(list: List<LyreonTrack>): List<LyreonTrack> {
+        val seen = HashSet<String>()
+        return list
+            .sortedBy { it.title.lowercase() }
+            .filter { t -> seen.add(t.title.lowercase().trim()) }
+    }
+}
+
+// ======================================================================
+// PLAYLIST DETAIL
+// ======================================================================
+
+class PlaylistViewModel(private val locator: ServiceLocator, val playlistId: Long) : ViewModel() {
+
+    val tracks: StateFlow<List<LyreonTrack>> =
+        locator.library.playlistItems(playlistId)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    fun remove(videoId: String) {
+        viewModelScope.launch { locator.library.removeFromPlaylist(playlistId, videoId) }
+    }
+
+    fun move(from: Int, to: Int) {
+        viewModelScope.launch { locator.library.moveInPlaylist(playlistId, from, to) }
+    }
+
+    fun rename(name: String) {
+        viewModelScope.launch { locator.library.renamePlaylist(playlistId, name) }
+    }
+}
+
+// ======================================================================
+// DOWNLOADS
+// ======================================================================
+
+class DownloadsViewModel(private val locator: ServiceLocator) : ViewModel() {
+
+    val downloads: StateFlow<List<DownloadEntity>> =
+        locator.library.downloads
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    fun cancel(videoId: String) {
+        viewModelScope.launch { locator.downloads.cancel(videoId) }
+    }
+
+    fun remove(videoId: String) {
+        viewModelScope.launch { locator.downloads.remove(videoId) }
+    }
+
+    fun retry(videoId: String) {
+        viewModelScope.launch { locator.downloads.retry(videoId) }
+    }
+
+    fun isDone(e: DownloadEntity) = e.state == DownloadState.DONE
+}
+
+// ======================================================================
+// YOUTUBE PLAYLIST DETAIL
+// ======================================================================
+
+data class YtPlaylistUiState(
+    val loading: Boolean = true,
+    val name: String = "",
+    val uploader: String = "",
+    val thumbnailUrl: String = "",
+    val tracks: List<LyreonTrack> = emptyList(),
+    val error: String? = null,
+    val saved: Boolean = false,
+)
+
+class YtPlaylistViewModel(private val locator: ServiceLocator, private val url: String) : ViewModel() {
+
+    private val _state = MutableStateFlow(YtPlaylistUiState())
+    val state: StateFlow<YtPlaylistUiState> = _state.asStateFlow()
+
+    init { load() }
+
+    fun load() {
+        viewModelScope.launch {
+            _state.update { it.copy(loading = true, error = null) }
+            runCatching {
+                locator.youtube.playlistDetail(url)
+            }.onSuccess { d ->
+                _state.update {
+                    it.copy(
+                        loading = false,
+                        name = d.name,
+                        uploader = d.uploader,
+                        thumbnailUrl = d.thumbnailUrl,
+                        tracks = d.tracks,
+                    )
+                }
+            }.onFailure { e ->
+                _state.update { it.copy(loading = false, error = e.message ?: "Gagal memuat playlist") }
+            }
+        }
+    }
+
+    fun saveAsLocal() {
+        val st = _state.value
+        if (st.tracks.isEmpty() || st.saved) return
+        viewModelScope.launch {
+            val id = locator.library.createPlaylist(st.name.ifBlank { "YouTube Playlist" })
+            st.tracks.forEach { t -> locator.library.addToPlaylist(id, t) }
+            _state.update { it.copy(saved = true) }
+        }
+    }
+}
+
+// ======================================================================
+// SETTINGS
+// ======================================================================
+
+class SettingsViewModel(private val locator: ServiceLocator) : ViewModel() {
+
+    val settings = locator.settings.settings
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), com.lyreon.app.data.settings.LyreonSettings())
+
+    fun setTheme(mode: com.lyreon.app.ui.theme.ThemeMode) {
+        viewModelScope.launch { locator.settings.setThemeMode(mode) }
+    }
+
+    fun setReduceMotion(v: Boolean) {
+        viewModelScope.launch { locator.settings.setReduceMotion(v) }
+    }
+
+    fun setQuality(q: AudioQuality) {
+        viewModelScope.launch { locator.settings.setAudioQuality(q) }
+    }
+
+    fun setAutoplay(v: Boolean) {
+        viewModelScope.launch { locator.settings.setAutoplayRelated(v) }
+    }
+
+    fun setDisplayName(v: String) {
+        viewModelScope.launch { locator.settings.setDisplayName(v) }
+    }
+
+    fun setAccent(argb: Int) {
+        viewModelScope.launch { locator.settings.setAccentArgb(argb) }
+    }
+
+    fun setFont(key: String) {
+        viewModelScope.launch { locator.settings.setFontKey(key) }
+    }
+
+    fun clearHistory() {
+        viewModelScope.launch { locator.library.clearHistory() }
+    }
+}

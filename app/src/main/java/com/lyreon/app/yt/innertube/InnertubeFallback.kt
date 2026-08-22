@@ -23,8 +23,16 @@ class InnertubeFallback {
 
     companion object {
         private const val TAG = "InnertubeFallback"
-        // Semua client yang dicoba, urut dari yang biasanya memberi URL langsung.
-        private val CLIENTS = listOf(Client.ANDROID, Client.IOS, Client.TV, Client.WEB)
+        // Semua client yang dicoba, urut dari yang paling tahan throttling & memberi stream langsung
+        private val CLIENTS = listOf(
+            Client.ANDROID_VR,
+            Client.ANDROID_TESTSUITE,
+            Client.IOS,
+            Client.TV_EMBEDDED,
+            Client.ANDROID,
+            Client.WEB_REMIX,
+            Client.WEB,
+        )
     }
 
     private val http = LyreonHttp.extractClient

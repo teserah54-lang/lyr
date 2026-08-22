@@ -79,6 +79,13 @@ class OkHttpDownloader private constructor(
             values.forEach { value -> builder.addHeader(name, value) }
         }
 
+        if (builder.build().header("User-Agent") == null) {
+            builder.header("User-Agent", LyreonHttp.USER_AGENT)
+        }
+        if (builder.build().header("Accept-Language") == null) {
+            builder.header("Accept-Language", "en-US,en;q=0.9")
+        }
+
         return builder.build()
     }
 

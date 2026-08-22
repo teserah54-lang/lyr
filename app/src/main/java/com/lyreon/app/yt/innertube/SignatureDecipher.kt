@@ -27,42 +27,89 @@ internal object SignatureDecipher {
 
     /** Fungsi signature klasik: `function(a){a=a.split("");...return a.join("")}`. */
     private val SIG_FN = Pattern.compile(
-        "function\\s*\\(a\\)\\{a=a\\.split\\(\"\"\\);[\\s\\S]*?return a\\.join\\(\"\"\\)\\}",
+        "(?:var\\s+)?([a-zA-Z0-9$]+)\\s*=\\s*function\\s*\\(([a-zA-Z0-9$]+)\\)\\{\\s*\\2=\\2\\.split\\(\"\"\\);([\\s\\S]*?)return \\2\\.join\\(\"\"\\)\\}"
     )
 
-    /** Fungsi n-param: `function(x){...return x.join("")}` (umumnya 1 argumen). */
-    private val N_FN = Pattern.compile(
-        "function\\s*\\([a-z]\\)\\{[^{}]*\\}[\\s\\S]{0,120}?\\.join\\(\"\"\\)\\}",
+    private val SIG_FN_ALT = Pattern.compile(
+        "function\\s*\\(([a-zA-Z0-9$]+)\\)\\{\\s*\\1=\\1\\.split\\(\"\"\\);([\\s\\S]*?)return \\1\\.join\\(\"\"\\)\\}"
     )
 
     /** Men-decode `s` menjadi parameter `sig` yang valid, atau null bila gagal. */
     fun decipherS(baseJs: String, s: String): String? {
-        val key = "s:$baseJs.length"
-        val func = cache.getOrPut(key) { extractSignatureFunction(baseJs).orEmpty() }
-        if (func.isBlank()) return null
-        return runInRhino(func, "sig", s)
+        val key = "s:${baseJs.hashCode()}"
+        val script = cache.getOrPut(key) { extractSignatureScript(baseJs).orEmpty() }
+        if (script.isBlank()) return null
+        return runInRhino(script, "sig", s)
     }
 
     /** Men-decode parameter `n`. Null bila gagal (URL lama tanpa n tetap valid). */
     fun decipherN(baseJs: String, n: String): String? {
-        val key = "n:$baseJs.length"
-        val func = cache.getOrPut(key) { extractNFunction(baseJs).orEmpty() }
-        if (func.isBlank()) return null
-        return runInRhino(func, "n", n)
+        val key = "n:${baseJs.hashCode()}"
+        val script = cache.getOrPut(key) { extractNScript(baseJs).orEmpty() }
+        if (script.isBlank()) return null
+        return runInRhino(script, "n", n)
     }
 
-    private fun extractSignatureFunction(baseJs: String): String? {
-        val m = SIG_FN.matcher(baseJs)
-        if (!m.find()) return null
-        return "var __sig = ${m.group()};"
+    private fun extractSignatureScript(baseJs: String): String? {
+        var funcBody = ""
+        var rawFunc = ""
+
+        val m1 = SIG_FN.matcher(baseJs)
+        if (m1.find()) {
+            rawFunc = m1.group()
+            funcBody = m1.group(3) ?: ""
+        } else {
+            val m2 = SIG_FN_ALT.matcher(baseJs)
+            if (m2.find()) {
+                rawFunc = "var __sig = " + m2.group()
+                funcBody = m2.group(2) ?: ""
+            } else {
+                return null
+            }
+        }
+
+        // Cari nama objek pembantu di dalam badan fungsi (contoh: ab.cd(a, 2))
+        val objPattern = Pattern.compile("([a-zA-Z0-9$]+)\\.[a-zA-Z0-9$]+\\(")
+        val objMatcher = objPattern.matcher(funcBody)
+        val helperObjDef = if (objMatcher.find()) {
+            val objName = objMatcher.group(1)
+            val escapedObjName = Pattern.quote(objName)
+            val helperPattern = Pattern.compile(
+                "(?:var\\s+|const\\s+|let\\s+)?$escapedObjName\\s*=\\s*\\{[\\s\\S]*?\\n*\\};"
+            )
+            val hm = helperPattern.matcher(baseJs)
+            if (hm.find()) hm.group() else ""
+        } else {
+            ""
+        }
+
+        val fullFn = if (rawFunc.startsWith("var __sig")) rawFunc else "var __sig = $rawFunc;"
+        return "$helperObjDef\n$fullFn"
     }
 
-    private fun extractNFunction(baseJs: String): String? {
-        val m = N_FN.matcher(baseJs)
-        if (!m.find()) return null
-        // Ambil sampai kurung penutup fungsi (seimbang).
-        val body = m.group()
-        return "var __n = $body;"
+    private fun extractNScript(baseJs: String): String? {
+        // Cari fungsi n transform
+        val nPatterns = listOf(
+            Pattern.compile("function\\s*\\([a-zA-Z0-9$]+\\)\\{[^{}]*\\}[\\s\\S]{0,150}?\\.join\\(\"\"\\)\\}"),
+            Pattern.compile("([a-zA-Z0-9$]+)\\s*=\\s*function\\s*\\([a-zA-Z0-9$]+\\)\\{var [a-zA-Z0-9$]+=[a-zA-Z0-9$]+\\.split\\(\"\"\\)[\\s\\S]*?return [a-zA-Z0-9$]+\\.join\\(\"\"\\)\\}")
+        )
+        for (pattern in nPatterns) {
+            val m = pattern.matcher(baseJs)
+            if (m.find()) {
+                val funcStr = m.group()
+                val helperPattern = Pattern.compile("([a-zA-Z0-9$]+)\\.[a-zA-Z0-9$]+\\(")
+                val objMatcher = helperPattern.matcher(funcStr)
+                val helperObjDef = if (objMatcher.find()) {
+                    val objName = objMatcher.group(1)
+                    val escapedObjName = Pattern.quote(objName)
+                    val hp = Pattern.compile("(?:var\\s+|const\\s+|let\\s+)?$escapedObjName\\s*=\\s*\\{[\\s\\S]*?\\n*\\};")
+                    val hm = hp.matcher(baseJs)
+                    if (hm.find()) hm.group() else ""
+                } else ""
+                return "$helperObjDef\nvar __n = $funcStr;"
+            }
+        }
+        return null
     }
 
     /**

@@ -22,10 +22,16 @@ android {
     val keystoreFile = file("${rootProject.projectDir}/debug.keystore")
 
     signingConfigs {
-        // Hanya pakai keystore lokal bila ADA. Keystore TIDAK di-track di git
-        // (material privat) — lihat README, bagian "Signing release APK".
-        if (keystoreFile.exists()) {
-            getByName("debug") {
+        getByName("debug") {
+            if (keystoreFile.exists()) {
+                storeFile = keystoreFile
+                storePassword = "android"
+                keyAlias = "androiddebugkey"
+                keyPassword = "android"
+            }
+        }
+        create("release") {
+            if (keystoreFile.exists()) {
                 storeFile = keystoreFile
                 storePassword = "android"
                 keyAlias = "androiddebugkey"
@@ -36,20 +42,12 @@ android {
 
     buildTypes {
         debug {
-            // Tanpa keystore, AGP otomatis pakai debug key (~/.android/debug.keystore)
-            if (keystoreFile.exists()) {
-                signingConfig = signingConfigs.getByName("debug")
-            }
+            signingConfig = signingConfigs.getByName("debug")
         }
         release {
-            isMinifyEnabled = true
-            isShrinkResources = true
+            isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            // Rilis tanpa keystore = APK tidak ditandatangani (harus ditandatangani
-            // manual sebelum di-distribusikan). Lihat README.
-            if (keystoreFile.exists()) {
-                signingConfig = signingConfigs.getByName("debug")
-            }
+            signingConfig = signingConfigs.getByName("release")
         }
     }
 

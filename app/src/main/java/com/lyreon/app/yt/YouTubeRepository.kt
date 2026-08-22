@@ -53,15 +53,37 @@ object LyreonHttp {
 
     val streamClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
-            .connectTimeout(12, TimeUnit.SECONDS)
+            .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(60, TimeUnit.SECONDS)
             .retryOnConnectionFailure(true)
             .addInterceptor { chain ->
-                val req = chain.request().newBuilder()
-                    .header("User-Agent", USER_AGENT)
-                    .header("Referer", "https://www.youtube.com/")
-                    .build()
-                chain.proceed(req)
+                val orig = chain.request()
+                val urlStr = orig.url.toString()
+                val reqBuilder = orig.newBuilder()
+
+                if (urlStr.contains("googlevideo.com")) {
+                    if (urlStr.contains("c=ANDROID_VR") || urlStr.contains("c=ANDROID")) {
+                        reqBuilder.header("User-Agent", "com.google.android.youtube/19.45.38 (Linux; U; Android 14) gzip")
+                        reqBuilder.removeHeader("Referer")
+                        reqBuilder.removeHeader("Origin")
+                    } else if (urlStr.contains("c=IOS")) {
+                        reqBuilder.header("User-Agent", "com.google.ios.youtube/19.45.4 (iPhone14,5; U; CPU iOS 17_6 like Mac OS X)")
+                        reqBuilder.removeHeader("Referer")
+                        reqBuilder.removeHeader("Origin")
+                    } else if (urlStr.contains("c=TVHTML5")) {
+                        reqBuilder.header("User-Agent", "Mozilla/5.0 (PlayStation; PlayStation 4/11.50) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15")
+                        reqBuilder.header("Origin", "https://www.youtube.com")
+                    } else {
+                        reqBuilder.header("User-Agent", USER_AGENT)
+                        reqBuilder.header("Referer", "https://www.youtube.com/")
+                        reqBuilder.header("Origin", "https://www.youtube.com")
+                    }
+                } else {
+                    if (orig.header("User-Agent") == null) {
+                        reqBuilder.header("User-Agent", USER_AGENT)
+                    }
+                }
+                chain.proceed(reqBuilder.build())
             }
             .build()
     }

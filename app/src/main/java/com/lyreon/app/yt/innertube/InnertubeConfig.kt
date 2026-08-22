@@ -18,10 +18,10 @@ internal object InnertubeConfig {
 
     private const val TAG = "InnertubeConfig"
 
-    // Cadangan bila halaman gagal di-scrape (kunci publik WEB_REMIX yang dikenal).
+    // Cadangan bila halaman gagal di-scrape (kunci publik WEB_REMIX / TV / ANDROID yang dikenal).
     private const val FALLBACK_KEY = "AIzaSyC9XL3ZjWddXya6X74dJoCTL-WEYFDNX30"
-    private const val FALLBACK_WEB_VERSION = "2.20260804.01.00"
-    private const val FALLBACK_ANDROID_VERSION = "19.09.37"
+    private const val FALLBACK_WEB_VERSION = "2.20260818.01.00"
+    private const val FALLBACK_ANDROID_VERSION = "19.45.38"
 
     @Volatile private var apiKey: String = FALLBACK_KEY
     @Volatile private var webVersion: String = FALLBACK_WEB_VERSION
@@ -41,6 +41,7 @@ internal object InnertubeConfig {
             val req = Request.Builder()
                 .url("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
                 .header("User-Agent", userAgent)
+                .header("Accept-Language", "en-US,en;q=0.9")
                 .get()
                 .build()
             ioClient.newCall(req).execute().use { resp ->
@@ -51,6 +52,8 @@ internal object InnertubeConfig {
                     ?.groupValues?.getOrNull(1) ?: webVersion
                 playerJsUrl = Regex("\"PLAYER_JS_URL\"\\s*:\\s*\"([^\"]+)\"").find(html)
                     ?.groupValues?.getOrNull(1)
+                    ?: Regex("src=\"(/s/player/[^\"]+/base\\.js)\"").find(html)?.groupValues?.getOrNull(1)
+                    ?: Regex("src=\"(https://www\\.youtube\\.com/s/player/[^\"]+/base\\.js)\"").find(html)?.groupValues?.getOrNull(1)
             }
         }.onFailure { e ->
             Log.w(TAG, "ensure() gagal scrape: ${e.message} — pakai nilai cadangan")

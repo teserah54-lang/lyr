@@ -200,6 +200,10 @@
     <string name="licenses_sec_ported">Kode yang diporting (GPL-3.0)</string>
     <string name="licenses_notice_heading">Pemberitahuan Apache-2.0</string>
     <string name="licenses_notice_body">Sebagian pustaka di atas dilisensikan Apache License 2.0 dan didistribusikan apa adanya, TANPA JAMINAN APAPUN. Salinan lengkap lisensi tersedia di https://www.apache.org/licenses/LICENSE-2.0. Hak cipta masing-masing pustaka tetap milik pemiliknya.</string>
+    <string name="widget_label">Lyreon Pemutar</string>
+    <string name="widget_description">Kendalikan pemutaran Lyreon langsung dari layar utama.</string>
+    <string name="widget_empty_title">Tidak ada yang diputar</string>
+    <string name="widget_play_pause">Putar atau jeda</string>
     <string name="language_label">Bahasa aplikasi</string>
     <string name="clear_history_title">Bersihkan riwayat dengar</string>
     <string name="clear_history_body">Menghapus catatan Recently Played (favorit &amp; playlist tetap aman).</string>

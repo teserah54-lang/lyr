@@ -189,6 +189,10 @@
     <string name="licenses_sec_ported">移植的代码（GPL-3.0）</string>
     <string name="licenses_notice_heading">Apache-2.0 声明</string>
     <string name="licenses_notice_body">上述部分库采用 Apache License 2.0 许可，按“原样”分发，不附带任何担保。许可全文见 https://www.apache.org/licenses/LICENSE-2.0。</string>
+    <string name="widget_label">Lyreon 播放器</string>
+    <string name="widget_description">直接从主屏幕控制 Lyreon 播放。</string>
+    <string name="widget_empty_title">暂无播放</string>
+    <string name="widget_play_pause">播放或暂停</string>
     <string name="language_label">应用语言</string>
     <string name="clear_history_title">清除收听历史</string>
     <string name="clear_history_body">删除最近播放记录（收藏和歌单不受影响）。</string>

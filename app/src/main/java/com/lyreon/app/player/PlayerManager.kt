@@ -36,6 +36,8 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.lyreon.app.widget.WidgetSnapshot
+import com.lyreon.app.widget.WidgetState
 
 data class PlayerUiState(
     val connected: Boolean = false,
@@ -227,6 +229,7 @@ class PlayerManager(
     private val listener = object : Player.Listener {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             _state.update { it.copy(isPlaying = isPlaying) }
+            publishWidgetState()
             if (isPlaying) {
                 _state.value.currentTrack?.let { t ->
                     scope.launch { locator.library.recordPlay(t) }
@@ -570,6 +573,27 @@ class PlayerManager(
         _position.update {
             it.copy(positionMs = c.currentPosition.coerceAtLeast(0L), durationMs = duration)
         }
+        publishWidgetState()
+    }
+
+    /**
+     * Dorong snapshot widget. Murah dan idempoten: [WidgetState.publish] berhenti
+     * lebih awal bila isinya tidak berubah, jadi pemanggilan berulang dari
+     * sinkronisasi pemutar tidak memicu render ulang launcher.
+     */
+    private fun publishWidgetState() {
+        val snapshot = _state.value
+        val track = snapshot.currentTrack
+        WidgetState.publish(
+            context,
+            WidgetSnapshot(
+                title = track?.title.orEmpty(),
+                artist = track?.artist.orEmpty(),
+                artUrl = track?.thumbnailUrl.orEmpty(),
+                isPlaying = snapshot.isPlaying,
+                hasTrack = track != null,
+            ),
+        )
     }
 
     private fun startTicker() {

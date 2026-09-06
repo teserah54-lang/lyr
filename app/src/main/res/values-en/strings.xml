@@ -189,6 +189,10 @@
     <string name="licenses_sec_ported">Ported code (GPL-3.0)</string>
     <string name="licenses_notice_heading">Apache-2.0 notice</string>
     <string name="licenses_notice_body">Some libraries above are licensed under the Apache License 2.0 and are distributed AS IS, WITHOUT WARRANTIES OF ANY KIND. A full copy of the license is available at https://www.apache.org/licenses/LICENSE-2.0. Copyright notices remain the property of their respective owners.</string>
+    <string name="widget_label">Lyreon Player</string>
+    <string name="widget_description">Control Lyreon playback right from your home screen.</string>
+    <string name="widget_empty_title">Nothing playing</string>
+    <string name="widget_play_pause">Play or pause</string>
     <string name="language_label">App language</string>
     <string name="clear_history_title">Clear listening history</string>
     <string name="clear_history_body">Deletes your Recently Played records (favorites &amp; playlists are safe).</string>

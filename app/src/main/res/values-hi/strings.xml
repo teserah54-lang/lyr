@@ -189,6 +189,10 @@
     <string name="licenses_sec_ported">पोर्ट किया गया कोड (GPL-3.0)</string>
     <string name="licenses_notice_heading">Apache-2.0 सूचना</string>
     <string name="licenses_notice_body">ऊपर दी गई कुछ लाइब्रेरी Apache License 2.0 के तहत हैं और बिना किसी वारंटी के जैसी हैं वैसी वितरित की जाती हैं। लाइसेंस की पूरी प्रति https://www.apache.org/licenses/LICENSE-2.0 पर उपलब्ध है।</string>
+    <string name="widget_label">Lyreon प्लेयर</string>
+    <string name="widget_description">होम स्क्रीन से ही Lyreon प्लेबैक नियंत्रित करें।</string>
+    <string name="widget_empty_title">कुछ नहीं चल रहा</string>
+    <string name="widget_play_pause">चलाएँ या रोकें</string>
     <string name="language_label">ऐप की भाषा</string>
     <string name="clear_history_title">सुनने का इतिहास साफ़ करें</string>
     <string name="clear_history_body">हाल ही में चलाए गए रिकॉर्ड हटाता है (पसंदीदा और प्लेलिस्ट सुरक्षित)।</string>

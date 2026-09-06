@@ -114,6 +114,12 @@ Invarian tambahan yang mudah terlewat:
   Efek ini ditolak sebagian perangkat: semua pemanggilan dibungkus `runCatching` dan
   kegagalan melepas enhancer, bukan mematikan pemutaran.
 
+- **Widget home screen** (`widget/PlayerWidgetReceiver.kt`) memakai RemoteViews dan
+  tombol yang mengirim `ACTION_MEDIA_BUTTON` + `KeyEvent` ke `PlaybackService` —
+  jalur kendali yang sama dengan notifikasi/headset, jadi jangan menambah logika
+  pemutaran kedua di widget. Snapshot dipasok `PlayerManager.publishWidgetState()`
+  dan `WidgetState.publish` berhenti lebih awal bila isi tidak berubah.
+
 ## 5. Internasionalisasi
 
 - 6 berkas `strings.xml`: `values` (id, default), `values-en`, `values-hi`, `values-ja`,

@@ -189,6 +189,10 @@
     <string name="licenses_sec_ported">Kod yang diport (GPL-3.0)</string>
     <string name="licenses_notice_heading">Notis Apache-2.0</string>
     <string name="licenses_notice_body">Sesetengah pustaka di atas dilesenkan di bawah Apache License 2.0 dan diedarkan SEBAGAIMANA ADANYA, TANPA SEBARANG JAMINAN. Salinan penuh lesen tersedia di https://www.apache.org/licenses/LICENSE-2.0.</string>
+    <string name="widget_label">Pemain Lyreon</string>
+    <string name="widget_description">Kawal main balik Lyreon terus dari skrin utama.</string>
+    <string name="widget_empty_title">Tiada yang dimainkan</string>
+    <string name="widget_play_pause">Main atau jeda</string>
     <string name="language_label">Bahasa aplikasi</string>
     <string name="clear_history_title">Kosongkan sejarah pendengaran</string>
     <string name="clear_history_body">Memadam rekod Baru Dimainkan (kegemaran &amp; senarai main selamat).</string>

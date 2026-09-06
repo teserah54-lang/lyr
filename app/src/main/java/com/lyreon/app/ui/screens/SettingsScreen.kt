@@ -158,6 +158,13 @@ fun SettingsScreen(
                 )
                 Spacer(Modifier.height(14.dp))
                 ToggleRow(
+                    title = stringResource(R.string.normalize_title),
+                    body = stringResource(R.string.normalize_body),
+                    checked = settings.normalizeAudio,
+                    onChange = vm::setNormalizeAudio,
+                )
+                Spacer(Modifier.height(14.dp))
+                ToggleRow(
                     title = stringResource(R.string.skip_silence_title),
                     body = stringResource(R.string.skip_silence_body),
                     checked = settings.skipSilence,

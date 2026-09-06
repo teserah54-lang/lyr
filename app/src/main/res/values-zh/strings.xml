@@ -179,6 +179,8 @@
     <string name="skip_silence_body">从播放的音频中移除静音部分（长间隔、空白前奏）。</string>
     <string name="skip_silence_instant_title">强力跳过静音</string>
     <string name="skip_silence_instant_body">若仍听到超过 2 秒的静音，向前跳 15 秒。需要同时开启上面的选项。</string>
+    <string name="normalize_title">统一音量</string>
+    <string name="normalize_body">使用 YouTube 响度数据自动调整音量，使每首歌曲听感一致（最高 +3 dB）。</string>
     <string name="language_label">应用语言</string>
     <string name="clear_history_title">清除收听历史</string>
     <string name="clear_history_body">删除最近播放记录（收藏和歌单不受影响）。</string>

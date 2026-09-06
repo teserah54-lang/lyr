@@ -19,9 +19,11 @@ package com.lyreon.app.player
 
 import android.app.PendingIntent
 import android.content.Context
+import android.media.audiofx.LoudnessEnhancer
 import android.content.Intent
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.audio.AudioProcessor
@@ -36,6 +38,7 @@ import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import com.lyreon.app.LyreonApp
 import com.lyreon.app.MainActivity
+import com.lyreon.app.player.audio.LoudnessStore
 import com.lyreon.app.player.audio.SilenceDetectorAudioProcessor
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -65,6 +68,10 @@ class PlaybackService : MediaSessionService() {
     private var mediaSession: MediaSession? = null
     private var silenceDetector: SilenceDetectorAudioProcessor? = null
     private var silenceSkipJob: Job? = null
+    private var loudnessEnhancer: LoudnessEnhancer? = null
+
+    @Volatile
+    private var normalizeEnabled: Boolean = true
 
     @Volatile
     private var isSilenceSkipping = false
@@ -120,6 +127,7 @@ class PlaybackService : MediaSessionService() {
             .build()
 
         observeAudioSettings(locator, player)
+        observeNormalization(locator, player)
     }
 
     /**
@@ -227,6 +235,83 @@ class PlaybackService : MediaSessionService() {
         }
     }
 
+    // ------------------------------------------------------------------
+    // Normalisasi volume per lagu (loudnessDb dari YouTube)
+    // ------------------------------------------------------------------
+
+    /**
+     * Gain = -loudnessDb (dalam millibel), dijepit -1500..+300 mB — sama seperti
+     * Meld/Metrolist: lagu yang direkam pelan dinaikkan, yang terlalu panas
+     * diturunkan sedikit, dan tidak pernah dipaksa lebih dari +3 dB.
+     */
+    private fun observeNormalization(locator: com.lyreon.app.core.ServiceLocator, player: ExoPlayer) {
+        player.addListener(object : Player.Listener {
+            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                refreshNormalization(player)
+            }
+        })
+
+        serviceScope.launch {
+            locator.settings.settings
+                .map { it.normalizeAudio }
+                .distinctUntilChanged()
+                .collect { enabled ->
+                    normalizeEnabled = enabled
+                    refreshNormalization(player)
+                }
+        }
+
+        // Loudness sering baru diketahui SETELAH lagu mulai (URL diselesaikan saat
+        // DataSource dibuka), jadi store-nya diamati terpisah.
+        serviceScope.launch {
+            LoudnessStore.latest.collect { latest ->
+                val currentId = player.currentMediaItem?.mediaId
+                if (latest != null && latest.first == currentId) refreshNormalization(player)
+            }
+        }
+    }
+
+    private fun refreshNormalization(player: ExoPlayer) {
+        if (!normalizeEnabled) {
+            setEnhancerEnabled(false)
+            return
+        }
+        val mediaId = player.currentMediaItem?.mediaId
+        if (mediaId == null) {
+            setEnhancerEnabled(false)
+            return
+        }
+        val loudnessDb = LoudnessStore.loudnessFor(mediaId)
+        if (loudnessDb == null) {
+            // Tidak ada data loudness (klien ini tidak memberikannya) → jangan
+            // mengubah volume sama sekali.
+            setEnhancerEnabled(false)
+            return
+        }
+        val sessionId = player.audioSessionId
+        if (sessionId == C.AUDIO_SESSION_ID_UNSET || sessionId <= 0) return
+        val enhancer = runCatching {
+            loudnessEnhancer ?: LoudnessEnhancer(sessionId).also { loudnessEnhancer = it }
+        }.getOrNull() ?: return
+        val gainMb = (-loudnessDb * 100f).toInt().coerceIn(MIN_GAIN_MB, MAX_GAIN_MB)
+        runCatching {
+            enhancer.setTargetGain(gainMb)
+            enhancer.enabled = true
+        }.onFailure {
+            // Sebagian perangkat menolak efek ini — matikan bersih, jangan crash.
+            releaseEnhancer()
+        }
+    }
+
+    private fun setEnhancerEnabled(enabled: Boolean) {
+        runCatching { loudnessEnhancer?.enabled = enabled }
+    }
+
+    private fun releaseEnhancer() {
+        runCatching { loudnessEnhancer?.release() }
+        loudnessEnhancer = null
+    }
+
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = mediaSession
 
     override fun onTaskRemoved(rootIntent: Intent?) {
@@ -238,6 +323,7 @@ class PlaybackService : MediaSessionService() {
 
     override fun onDestroy() {
         silenceSkipJob?.cancel()
+        releaseEnhancer()
         serviceScope.cancel()
         silenceDetector = null
         mediaSession?.run {
@@ -257,6 +343,10 @@ class PlaybackService : MediaSessionService() {
 
         /** Ambang sampel PCM 16-bit di bawah 256 dianggap hening. */
         const val SILENCE_THRESHOLD = 256
+
+        /** Batas gain normalisasi (millibel): -15 dB .. +3 dB, mengikuti Meld. */
+        const val MIN_GAIN_MB = -1500
+        const val MAX_GAIN_MB = 300
 
         const val SILENCE_DEBOUNCE_MS = 200L
         const val SILENCE_SKIP_STEP_MS = 15_000L

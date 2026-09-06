@@ -53,6 +53,8 @@ data class LyreonSettings(
     val playbackSpeed: Float = 1f,
     /** Geser nada dalam semitone (-12..+12); 0 = nada asli. */
     val pitchSemitones: Int = 0,
+    /** Samakan keras lagu memakai loudness referensi dari YouTube. */
+    val normalizeAudio: Boolean = true,
 )
 
 class SettingsRepository(private val context: Context) {
@@ -72,6 +74,7 @@ class SettingsRepository(private val context: Context) {
         val SKIP_SILENCE_INSTANT = booleanPreferencesKey("skip_silence_instant")
         val PLAYBACK_SPEED = floatPreferencesKey("playback_speed")
         val PITCH_SEMITONES = intPreferencesKey("pitch_semitones")
+        val NORMALIZE_AUDIO = booleanPreferencesKey("normalize_audio")
     }
 
     val settings: Flow<LyreonSettings> = context.lyreonDataStore.data.map { prefs ->
@@ -93,6 +96,7 @@ class SettingsRepository(private val context: Context) {
             skipSilenceInstant = prefs[Keys.SKIP_SILENCE_INSTANT] ?: false,
             playbackSpeed = (prefs[Keys.PLAYBACK_SPEED] ?: 1f).coerceIn(0.5f, 2f),
             pitchSemitones = (prefs[Keys.PITCH_SEMITONES] ?: 0).coerceIn(-12, 12),
+            normalizeAudio = prefs[Keys.NORMALIZE_AUDIO] ?: true,
         )
     }
 
@@ -153,5 +157,9 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setPitchSemitones(value: Int) {
         context.lyreonDataStore.edit { it[Keys.PITCH_SEMITONES] = value.coerceIn(-12, 12) }
+    }
+
+    suspend fun setNormalizeAudio(value: Boolean) {
+        context.lyreonDataStore.edit { it[Keys.NORMALIZE_AUDIO] = value }
     }
 }

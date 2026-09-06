@@ -179,6 +179,8 @@
     <string name="skip_silence_body">चल रहे ऑडियो से खामोश हिस्से (लंबे अंतर, खाली इंट्रो) हटाएँ।</string>
     <string name="skip_silence_instant_title">आक्रामक खामोशी छलांग</string>
     <string name="skip_silence_instant_body">यदि 2 सेकंड से लंबी खामोशी अभी भी सुनाई दे तो 15 सेकंड आगे कूदें। ऊपर वाला विकल्प चालू होना चाहिए।</string>
+    <string name="normalize_title">वॉल्यूम सामान्य करें</string>
+    <string name="normalize_body">YouTube लाउडनेस डेटा से वॉल्यूम अपने आप समायोजित करें ताकि हर गाना एक जैसा सुनाई दे (अधिकतम +3 dB)।</string>
     <string name="language_label">ऐप की भाषा</string>
     <string name="clear_history_title">सुनने का इतिहास साफ़ करें</string>
     <string name="clear_history_body">हाल ही में चलाए गए रिकॉर्ड हटाता है (पसंदीदा और प्लेलिस्ट सुरक्षित)।</string>

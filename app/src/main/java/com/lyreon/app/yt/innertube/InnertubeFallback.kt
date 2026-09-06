@@ -615,6 +615,8 @@ class InnertubeFallback {
             val bitrate: Int,
             /** Panjang file sebenarnya — dipakai probe byte terakhir ([StreamUrlValidator]). */
             val contentLength: Long,
+            /** Loudness referensi YouTube untuk format ini (dB), bila ada. */
+            val loudnessDb: Float?,
         )
 
         val candidates = ArrayList<Candidate>(formats.length())
@@ -638,6 +640,10 @@ class InnertubeFallback {
             // `contentLength` bisa datang sebagai angka atau string; `optString`
             // menangani keduanya. Bila tak ada, probe memakai `clen=` di URL.
             val contentLength = f.optString("contentLength").toLongOrNull() ?: 0L
+            // YouTube menaruh loudness referensi di format audio; `loudnessDb` lebih
+            // dulu, `perceptualLoudnessDb` sebagai cadangan (urutan yang sama dengan
+            // yang dipakai Meld/Metrolist).
+            val loudnessDb = ((f.opt("loudnessDb") ?: f.opt("perceptualLoudnessDb")) as? Number)?.toFloat()
             candidates.add(
                 Candidate(
                     url = url,
@@ -645,6 +651,7 @@ class InnertubeFallback {
                     suffix = suffixOf(mime),
                     bitrate = bitrate,
                     contentLength = contentLength,
+                    loudnessDb = loudnessDb,
                 ),
             )
         }
@@ -677,6 +684,7 @@ class InnertubeFallback {
             expiresAtMs = parseExpire(chosen.url),
             fallbackUrl = fallbackUrl,
             contentLength = chosen.contentLength,
+            loudnessDb = chosen.loudnessDb,
         )
     }
 

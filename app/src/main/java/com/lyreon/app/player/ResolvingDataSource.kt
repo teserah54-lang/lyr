@@ -48,6 +48,10 @@ class ResolvingDataSource(
                     Uri.fromFile(java.io.File(local))
                 else -> try {
                     val resolved = youtube.resolveCachedBlocking(videoId)
+                    // Loudness format terpilih → bahan normalisasi volume per lagu.
+                    resolved.loudnessDb?.let { db ->
+                        com.lyreon.app.player.audio.LoudnessStore.record(videoId, db)
+                    }
                     // Hasilnya manifest HLS? ProgressiveMediaSource tidak bisa
                     // memutarnya — beri tahu PlayerManager supaya MediaItem ditukar
                     // ke URL m3u8 + MIME yang benar (HlsMediaSource).

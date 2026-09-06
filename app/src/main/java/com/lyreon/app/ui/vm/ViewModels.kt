@@ -896,6 +896,10 @@ class SettingsViewModel(private val locator: ServiceLocator) : ViewModel() {
         viewModelScope.launch { locator.settings.setPitchSemitones(v) }
     }
 
+    fun setNormalizeAudio(v: Boolean) {
+        viewModelScope.launch { locator.settings.setNormalizeAudio(v) }
+    }
+
     fun clearHistory() {
         viewModelScope.launch { locator.library.clearHistory() }
     }

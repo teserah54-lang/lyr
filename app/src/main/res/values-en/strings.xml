@@ -179,6 +179,8 @@
     <string name="skip_silence_body">Remove silent parts (long gaps, empty intros) from the audio being played.</string>
     <string name="skip_silence_instant_title">Aggressive silence skip</string>
     <string name="skip_silence_instant_body">If silence longer than 2 seconds is still audible, jump 15 seconds forward. Requires the option above.</string>
+    <string name="normalize_title">Normalize volume</string>
+    <string name="normalize_body">Automatically adjust volume using YouTube loudness data so every track sounds equally loud (max +3 dB).</string>
     <string name="language_label">App language</string>
     <string name="clear_history_title">Clear listening history</string>
     <string name="clear_history_body">Deletes your Recently Played records (favorites &amp; playlists are safe).</string>

@@ -131,6 +131,13 @@ data class ResolvedAudio(
      * sebenarnya cuma pratinjau ~1 MiB dan akan 403 di tengah lagu.
      */
     val contentLength: Long = 0L,
+    /**
+     * Loudness referensi dari YouTube (`loudnessDb`, atau `perceptualLoudnessDb`
+     * bila itu yang ada) untuk format audio terpilih, dalam dB. Dipakai normalisasi
+     * volume per lagu: gain = -loudnessDb (dijepit) lewat `LoudnessEnhancer`.
+     * `null` = YouTube tidak memberi data untuk klien/format ini.
+     */
+    val loudnessDb: Float? = null,
     /** Kunci klien InnerTube yang mencetak URL ini (`visionos`, `android_vr`, …). */
     val clientKey: String = "",
     /**

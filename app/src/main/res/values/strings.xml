@@ -190,6 +190,8 @@
     <string name="skip_silence_body">Buang bagian sunyi (jeda panjang, intro kosong) dari audio yang diputar.</string>
     <string name="skip_silence_instant_title">Lompat hening (agresif)</string>
     <string name="skip_silence_instant_body">Bila sunyi lebih dari 2 detik masih terdengar, lompat 15 detik ke depan. Butuh opsi di atas aktif.</string>
+    <string name="normalize_title">Samakan volume lagu</string>
+    <string name="normalize_body">Naik-turunkan volume otomatis memakai data loudness YouTube agar semua lagu terdengar setara (maks +3 dB).</string>
     <string name="language_label">Bahasa aplikasi</string>
     <string name="clear_history_title">Bersihkan riwayat dengar</string>
     <string name="clear_history_body">Menghapus catatan Recently Played (favorit &amp; playlist tetap aman).</string>

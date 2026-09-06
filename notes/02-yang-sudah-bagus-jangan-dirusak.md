@@ -107,6 +107,13 @@ Invarian tambahan yang mudah terlewat:
   `androidx.media3.common.audio`, dan `SilenceSkippingAudioProcessor(long, long, short)`.
   Bila menaikkan versi media3, periksa ulang keempatnya sebelum menyentuh file ini.
 
+- **Normalisasi volume** memakai `LoudnessStore` (in-memory, per videoId) yang diisi
+  `ResolvingDataSource` saat stream diselesaikan, dan diterapkan `PlaybackService`
+  lewat `android.media.audiofx.LoudnessEnhancer` (gain −loudnessDb×100 mB, dijepit
+  −1500..+300). Bila tidak ada data loudness → **jangan sentuh volume sama sekali**.
+  Efek ini ditolak sebagian perangkat: semua pemanggilan dibungkus `runCatching` dan
+  kegagalan melepas enhancer, bukan mematikan pemutaran.
+
 ## 5. Internasionalisasi
 
 - 6 berkas `strings.xml`: `values` (id, default), `values-en`, `values-hi`, `values-ja`,

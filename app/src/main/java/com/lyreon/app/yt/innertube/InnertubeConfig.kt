@@ -32,12 +32,26 @@ internal object InnertubeConfig {
 
     private val fetched = ConcurrentHashMap.newKeySet<String>()
 
+    /** Jeda minimum sebelum scrape ytcfg diulang setelah kegagalan. */
+    private const val RETRY_AFTER_MS = 5L * 60_000L
+
+    @Volatile private var scrapeOk = false
+    @Volatile private var lastScrapeAtMs = 0L
+
     /**
-     * Mengambil konfigurasi dari halaman YouTube (sekali saja). Aman dipanggil
-     * berulang; kembalikan segera bila sudah pernah di-fetch.
+     * Mengambil konfigurasi dari halaman YouTube. Aman dipanggil berulang.
+     *
+     * Bila scrape pernah GAGAL (jaringan putus saat start-up, YouTube mengubah
+     * markup), dicoba lagi setelah [RETRY_AFTER_MS] — memakai nilai cadangan
+     * selamanya berarti semua klien bisa ditolak YouTube hanya karena satu
+     * kegagalan sesaat di awal sesi.
      */
+    @Synchronized
     fun ensure(ioClient: okhttp3.OkHttpClient, userAgent: String) {
-        if (!fetched.add("main")) return
+        if (scrapeOk) return
+        val now = System.currentTimeMillis()
+        if (lastScrapeAtMs > 0L && now - lastScrapeAtMs < RETRY_AFTER_MS) return
+        lastScrapeAtMs = now
         runCatching {
             val req = Request.Builder()
                 .url("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
@@ -59,10 +73,26 @@ internal object InnertubeConfig {
                 // masih ditandatangani base.js; tanpanya URL kerap langsung 403.
                 signatureTs = Regex("\"STS\"\\s*:\\s*(\\d{4,6})").find(html)
                     ?.groupValues?.getOrNull(1)?.toIntOrNull() ?: signatureTs
+                scrapeOk = html.isNotBlank()
+                if (scrapeOk) Log.i(TAG, "scrape ytcfg OK: versi=$webVersion sts=$signatureTs")
             }
         }.onFailure { e ->
             Log.w(TAG, "ensure() gagal scrape: ${e.message} — pakai nilai cadangan")
         }
+    }
+
+    /**
+     * Buang `visitorData` tersimpan supaya permintaan berikutnya mengambil yang
+     * baru. Dipanggil tangga klien setelah beberapa respons beruntun ditolak
+     * (`UNPLAYABLE`, "The page needs to be reloaded", transport error): pola itu
+     * sering berarti visitorData basi/tidak cocok dengan sesi yang memeriksa.
+     */
+    @Synchronized
+    fun invalidateVisitor() {
+        if (visitorData == null) return
+        visitorData = null
+        fetched.remove("visitor")
+        Log.i(TAG, "visitorData dibuang — akan diambil ulang pada permintaan berikut")
     }
 
     /** Visitor data opsional (dari halaman) — membantu beberapa permintaan player. */

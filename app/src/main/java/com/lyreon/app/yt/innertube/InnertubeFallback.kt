@@ -78,6 +78,9 @@ class InnertubeFallback {
 
         /** MIME manifest HLS — dipakai `DefaultMediaSourceFactory` memilih `HlsMediaSource`. */
         const val HLS_MIME = "application/x-mpegurl"
+
+        /** Jumlah respons terblokir beruntun yang memicu penyegaran visitorData. */
+        private const val BLOCKED_STREAK_REFRESH = 3
     }
 
     private val http = LyreonHttp.extractClient
@@ -150,7 +153,7 @@ class InnertubeFallback {
         quality: AudioQuality,
         allowManifest: Boolean = true,
     ): ResolvedAudio {
-        val visitor = InnertubeConfig.visitor()
+        var visitor = InnertubeConfig.visitor()
         val webVersion = InnertubeConfig.webClientVersion()
         val sts = InnertubeConfig.signatureTimestamp()
 
@@ -165,6 +168,11 @@ class InnertubeFallback {
         var playability = ""
         var manifest: ResolvedAudio? = null
         var manifestClient: String? = null
+        // Respons ditolak beruntun (UNPLAYABLE / "page needs to be reloaded" /
+        // transport error) sering berarti visitorData basi atau tidak cocok dengan
+        // sesi yang memeriksa. Setelah tiga kali, ambil visitorData baru — satu
+        // permintaan ringan yang bisa menyelamatkan seluruh sisa tangga.
+        var blockedStreak = 0
 
         for (spec in ladder) {
             val startedAt = System.currentTimeMillis()
@@ -225,6 +233,21 @@ class InnertubeFallback {
             val elapsed = System.currentTimeMillis() - startedAt
             attempts += "${spec.key}=${verdict.name}"
             PlayerClientLadder.note(spec.key, verdict, elapsed, detail)
+
+            blockedStreak = when (verdict) {
+                ClientVerdict.PLAYABILITY_BLOCKED, ClientVerdict.TRANSPORT_ERROR,
+                ClientVerdict.INVALID_RESPONSE -> blockedStreak + 1
+                else -> 0
+            }
+            if (blockedStreak == BLOCKED_STREAK_REFRESH) {
+                InnertubeConfig.invalidateVisitor()
+                InnertubeConfig.ensureVisitorData(http, ua)
+                visitor = InnertubeConfig.visitor()
+                PlayerClientLadder.push(
+                    "$blockedStreak klien ditolak beruntun → visitorData disegarkan",
+                )
+                Log.w(TAG, "$blockedStreak respons terblokir beruntun untuk $videoId — visitorData disegarkan")
+            }
 
             if (picked != null) {
                 PlayerClientLadder.push(

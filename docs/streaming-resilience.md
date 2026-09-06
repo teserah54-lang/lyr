@@ -153,6 +153,11 @@ ditambahkan (§7). Itu risiko yang dipilih, bukan yang diabaikan.
    - `DRM_ONLY` → khas klien TV; jangan dihitung sebagai kemenangan.
    - `PLAYABILITY_BLOCKED: UNPLAYABLE / needs to be reloaded` → klien itu butuh
      poToken. Sudah benar bila ia hanya muncul di diagnostik, bukan di jalur putar.
+     Bila pola ini muncul pada klien yang seharusnya bebas poToken, curigai
+     `visitorData` basi: setelah 3 respons terblokir beruntun tangga klien
+     membuangnya dan mengambil yang baru (baris `visitorData disegarkan` di
+     riwayat). Kalau masih berlanjut, paksa scrape ulang dengan **RESET** di
+     panel yang sama.
    - `TRANSPORT_ERROR HTTP 403/429` → signature/poToken/rate-limit, bukan SABR.
 2. **Cek extractor.** Baris `Extractor:` di laporan yang sama menunjukkan apakah
    `MetrolistExtractor` masih menghasilkan stream audio. Bila ia terus membalas
@@ -183,7 +188,7 @@ adb logcat -s LyreonStreamHealth PlayerClientLadder InnertubeFallback InnertubeC
 | `LyreonStreamHealth` | kegagalan `#n/3`, breaker **TERBUKA**, breaker **di-reset** + bukti kemajuan, `track … beralih ke manifest HLS` |
 | `PlayerClientLadder` | verdict per klien (`visionos → USABLE (412ms)`), total SABR, bypass extractor, `extractor: N stream HLS saja` |
 | `InnertubeFallback` | klien yang akhirnya memberi audio, dan alasan lengkap saat semua gagal |
-| `InnertubeConfig` | hasil scrape API key/versi/`visitorData`/`STS` |
+| `InnertubeConfig` | hasil scrape API key/versi/`visitorData`/`STS`; dicoba ulang 5 menit bila scrape awal gagal |
 
 Pola yang menandakan loop lama sudah tertangani: beberapa baris `gagal #1..#3`
 lalu satu baris `breaker TERBUKA` — bukan puluhan skip tanpa akhir.

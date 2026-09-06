@@ -58,21 +58,28 @@ object LyreonHttp {
             .retryOnConnectionFailure(true)
             .addInterceptor { chain ->
                 val orig = chain.request()
-                val urlStr = orig.url.toString()
+                val url = orig.url
                 val reqBuilder = orig.newBuilder()
 
-                if (urlStr.contains("googlevideo.com")) {
-                    if (urlStr.contains("c=ANDROID_VR") || urlStr.contains("c=ANDROID")) {
-                        reqBuilder.header("User-Agent", "com.google.android.youtube/19.45.38 (Linux; U; Android 14) gzip")
+                if (url.host.endsWith("googlevideo.com")) {
+                    // CDN mencocokkan User-Agent request dengan klien yang MENCETAK URL
+                    // (parameter `c=` + `cver=`). UA yang melenceng adalah penyebab klasik
+                    // 403 padahal URL-nya sah — dan Lyreon dulu menebak dari `c=` saja lalu
+                    // memasang UA app lawas (untuk `c=ANDROID_VR` yang terpasang justru
+                    // `com.google.android.youtube/19.45.38`: nama paket salah, versi salah).
+                    // Sekarang UA diambil dari spec yang sama dengan tangga klien, sehingga
+                    // request pemutaran identik dengan probe `StreamUrlValidator`.
+                    val specUa = com.lyreon.app.yt.innertube.PlayerClientLadder
+                        .streamUserAgentFor(url.queryParameter("c"), url.queryParameter("cver"))
+                    if (specUa != null) {
+                        reqBuilder.header("User-Agent", specUa)
+                        // Samakan dengan probe: tanpa Origin/Referer.
                         reqBuilder.removeHeader("Referer")
                         reqBuilder.removeHeader("Origin")
-                    } else if (urlStr.contains("c=IOS")) {
-                        reqBuilder.header("User-Agent", "com.google.ios.youtube/19.45.4 (iPhone14,5; U; CPU iOS 17_6 like Mac OS X)")
-                        reqBuilder.removeHeader("Referer")
-                        reqBuilder.removeHeader("Origin")
-                    } else if (urlStr.contains("c=TVHTML5")) {
-                        reqBuilder.header("User-Agent", "Mozilla/5.0 (PlayStation; PlayStation 4/11.50) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15")
-                        reqBuilder.header("Origin", "https://www.youtube.com")
+                    } else if (url.queryParameter("sabr") != null) {
+                        // URL SABR: tidak bisa di-GET biasa. Biarkan apa adanya supaya
+                        // errornya terbaca, jangan dipakaikan UA web.
+                        reqBuilder.header("User-Agent", USER_AGENT)
                     } else {
                         reqBuilder.header("User-Agent", USER_AGENT)
                         reqBuilder.header("Referer", "https://www.youtube.com/")
@@ -112,6 +119,23 @@ data class ResolvedAudio(
      * yang memutarnya.
      */
     val isManifest: Boolean = false,
+    /**
+     * Panjang file dalam byte (dari `adaptiveFormats[].contentLength`, atau `clen=`
+     * di URL). Dipakai [com.lyreon.app.yt.innertube.StreamUrlValidator] untuk
+     * mem-probe **byte terakhir** file — satu-satunya cara mendeteksi URL yang
+     * sebenarnya cuma pratinjau ~1 MiB dan akan 403 di tengah lagu.
+     */
+    val contentLength: Long = 0L,
+    /** Kunci klien InnerTube yang mencetak URL ini (`visionos`, `android_vr`, …). */
+    val clientKey: String = "",
+    /**
+     * False HANYA untuk jalur cadangan terakhir: semua URL ditolak CDN dan tidak ada
+     * manifest yang hidup, jadi URL yang ditolak itu tetap diserahkan ke pemutar
+     * (aturan Meld: pratinjau ~1 MiB lebih baik daripada tidak ada stream). Pemutaran
+     * mungkin berhenti di tengah lagu; **unduhan menolak** memakai URL seperti ini
+     * supaya tidak menyimpan file terpotong diam-diam.
+     */
+    val validated: Boolean = true,
 )
 
 data class YtTrackBundle(
@@ -422,7 +446,7 @@ class YouTubeRepository {
                 ?.first?.content
                 ?.takeUnless { it.isBlank() || it == url }
 
-            return ResolvedAudio(
+            val resolved = ResolvedAudio(
                 videoId = videoId,
                 url = url,
                 mimeType = mime,
@@ -432,6 +456,35 @@ class YouTubeRepository {
                 fallbackUrl = fallbackUrl,
                 isManifest = manifest,
             )
+
+            // VALIDASI URL EXTRACTOR — pelajaran dari Meld.
+            //
+            // NewPipe memberi URL dari klien yang kini diwajibkan poToken GVS, sehingga
+            // URL-nya ADA tetapi 403 begitu di-GET: persis laporan "extractor streams=4,
+            // pemutar ERROR_CODE_IO_BAD_HTTP_STATUS". Probe byte terakhir membedakan
+            // keduanya; bila ditolak, jangan dipakai — turun ke tangga klien InnerTube
+            // yang memvalidasi tiap URL sebelum diserahkan ke ExoPlayer.
+            if (!manifest) {
+                val probe = com.lyreon.app.yt.innertube.StreamUrlValidator.validate(
+                    url = url,
+                    contentLength = null, // diturunkan dari `clen=` di URL
+                    label = "extractor videoId=$videoId",
+                )
+                if (!probe.accepted) {
+                    com.lyreon.app.yt.innertube.PlayerClientLadder.push(
+                        "URL extractor DITOLAK CDN (${probe.code} pada ${probe.range}) → turun ke tangga klien",
+                    )
+                    Log.w(TAG, "URL extractor untuk $videoId ditolak CDN (${probe.code}) — pakai tangga klien")
+                    return fallbackResolve(
+                        videoId = videoId,
+                        quality = quality,
+                        cause = java.io.IOException("URL extractor ditolak CDN (HTTP ${probe.code})"),
+                        allowManifest = allowManifest,
+                    )
+                }
+            }
+
+            return resolved
         }
 
         // Extractor sedang di-bypass (SABR berulang) → langsung tangga klien.

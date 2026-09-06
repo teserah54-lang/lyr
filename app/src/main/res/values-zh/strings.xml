@@ -252,7 +252,7 @@
     <string name="health_retry">重试</string>
     <string name="health_dismiss">关闭</string>
     <string name="health_diag_title">客户端诊断</string>
-    <string name="health_diag_body">该测试会遍历整个 InnerTube 客户端阶梯，并报告哪些客户端仍能返回音频 URL — YouTube 再次改政策时很有用。</string>
+    <string name="health_diag_body">此测试会遍历整个 InnerTube 客户端梯队，用末字节请求检测每个音频链接，然后报告哪些客户端真正可播放——每当 YouTube 调整策略时都很有用。</string>
     <string name="health_test_running">测试中…</string>
     <string name="health_test_ok">串流可用</string>
     <string name="health_test_fail">没有通道返回音频 URL</string>
@@ -266,6 +266,9 @@
     <string name="health_copied">诊断信息已复制到剪贴板</string>
     <string name="health_reset">重置串流缓存</string>
     <string name="health_test_manifest">可通过 %1$s 获取 HLS 清单（可播放）</string>
+    <string name="health_test_cdn_reject">部分客户端的音频链接被 CDN 拒绝（403 / 约 1 MiB 预览）</string>
+    <string name="health_test_url_only">%1$s 返回了链接，但未通过读取检测</string>
+    <string name="health_test_visitor">visitorData：%1$s</string>
     <string name="health_test_drm">部分客户端返回受 DRM 保护的格式（需要 YouTube 访客会话）</string>
     <string name="health_test_sabr">部分客户端返回 SABR-only</string>
     <string name="health_test_hls">仅 HLS 可用（需要 HLS 播放器）</string>

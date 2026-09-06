@@ -838,6 +838,19 @@ private fun StreamHealthSection(vm: SettingsViewModel) {
                 report.ladder.manifestClient?.let { client ->
                     DiagLine(stringResource(R.string.health_test_manifest, client))
                 }
+                // Temuan Meld: URL yang dikembalikan YouTube bisa jadi hanya pratinjau
+                // ~1 MiB (403 sesudahnya). Baris ini yang membedakan "ada URL" dari
+                // "URL itu bisa dibaca sampai habis".
+                if (report.ladder.cdnRejected) {
+                    DiagLine(stringResource(R.string.health_test_cdn_reject))
+                }
+                report.ladder.urlOnlyClient?.let { client ->
+                    DiagLine(stringResource(R.string.health_test_url_only, client))
+                }
+                DiagLine(
+                    stringResource(R.string.health_test_visitor, report.ladder.visitorOrigin),
+                    dim = true,
+                )
                 if (report.ladder.sabrOnly) {
                     DiagLine(stringResource(R.string.health_test_sabr))
                 }

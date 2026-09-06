@@ -808,7 +808,11 @@ class SettingsViewModel(private val locator: ServiceLocator) : ViewModel() {
                 append(" audio=").append(probe.ladder.audioUrlFound)
                 append(" hls=").append(probe.ladder.manifestClient ?: "-")
                 append(" sabr=").append(probe.ladder.sabrOnly)
-                append(" drm=").append(probe.ladder.drmOnly).append('\n')
+                append(" drm=").append(probe.ladder.drmOnly)
+                // `cdnRejected`/`urlOnly` = URL ada tapi tak terbaca (pratinjau ~1 MiB / 403).
+                append(" cdnRejected=").append(probe.ladder.cdnRejected)
+                append(" urlOnly=").append(probe.ladder.urlOnlyClient ?: "-")
+                append(" visitor=").append(probe.ladder.visitorOrigin).append('\n')
                 probe.ladder.attempts.forEach { a ->
                     append("   ").append(a.client).append(" → ").append(a.verdict)
                     append(" (").append(a.elapsedMs).append("ms)")

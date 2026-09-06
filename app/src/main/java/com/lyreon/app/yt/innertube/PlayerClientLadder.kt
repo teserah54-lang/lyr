@@ -17,41 +17,45 @@ import java.util.concurrent.atomic.AtomicReference
  *
  * YouTube tidak mengumumkan klien mana yang boleh menerima `streamingData`
  * berisi URL yang bisa di-GET; kebijakannya bergeser terus (SABR digulirkan
- * bertahap sejak 2025, poToken diwajibkan per klien, endpoint `ANDROID_VR`
- * ditutup Agustus 2026). Tanpa lapisan ini, setiap perubahan kebijakan YouTube
- * berarti membongkar kode resolusi stream. Dengan lapisan ini, yang perlu
- * diubah hanya **tabel di bawah** — deteksi SABR/DRM/HLS, diagnostik, dan
- * pendinginan klien ikut otomatis.
+ * bertahap sejak 2025, poToken diwajibkan per klien, `ANDROID_VR` di-gate per
+ * **versi** sejak Agustus 2026). Tanpa lapisan ini, setiap perubahan kebijakan
+ * YouTube berarti membongkar kode resolusi stream. Dengan lapisan ini, yang
+ * perlu diubah hanya **tabel di bawah** — deteksi SABR/DRM/HLS, diagnostik,
+ * validasi URL, dan pendinginan klien ikut otomatis.
  *
- * ## Lyreon = ANONIM, tanpa cookie
+ * ## Sumber tabel: Meld (FrancescoGrazioso/Meld), September 2026
  *
- * Keputusan produk: pengguna tidak pernah diminta menempel cookie akun. Karena
- * itu tangga ini disusun dari **kebijakan poToken per klien** (tabel "Current PO
- * Token enforcement" di yt-dlp PO Token Guide, revisi Juli 2026):
+ * Seluruh spesifikasi klien di sini **disalin byte-per-byte** dari
+ * [`YouTubeClient.kt`](https://github.com/FrancescoGrazioso/Meld/blob/main/innertube/src/main/kotlin/com/metrolist/innertube/models/YouTubeClient.kt)
+ * dan urutannya dari `YTPlayerUtils.STREAM_FALLBACK_CLIENTS` — klien musik Android
+ * anonim yang pengembangnya mengukur langsung klien mana yang sanggup melayani
+ * **satu file utuh** (bukan sekadar mengembalikan URL):
  *
- * | klien | poToken GVS | catatan |
- * |---|---|---|
- * | `visionos` | tidak | default anonim yt-dlp, tanpa JS player |
- * | `web_embedded` | tidak | hanya video yang boleh di-embed |
- * | `tv` / `tv_downgraded` | tidak | format sering DRM tanpa cookie; itag 18 kadang lolos |
- * | `tv_simply` | **ya** (HTTPS/DASH), HLS tidak | dipakai sebagai sumber manifest HLS |
- * | `web_safari` | **ya** (HTTPS), HLS tidak | Safari UA → format HLS pre-merged |
- * | `android_vr` | **ya** (HTTPS/DASH), HLS tidak | sejak 2026-08-17 semua format 403 |
- * | `web` / `web_remix` / `mweb` | **ya** | SABR-only / UNPLAYABLE tanpa poToken |
- * | `android` / `ios` | **ya** (GVS atau Player) | 403 tanpa poToken |
+ * ```
+ * VISIONOS → ANDROID_VR 1.65.10 → TVHTML5 → ANDROID_VR 1.43.32 → IPADOS → IOS
+ * ```
  *
- * Konsekuensinya: klien yang butuh poToken ([requiresPoToken]) **tidak dipakai
- * untuk memutar** — hanya dijalankan saat "Tes koneksi" supaya pengguna/developer
- * bisa melihat kebijakan YouTube bergeser. Jalur anonim yang nyata adalah
- * URL langsung dari klien bebas poToken **atau manifest HLS** (yang tidak butuh
- * poToken GVS), sehingga Lyreon mendukung pemutaran HLS.
+ * Tiga temuan Meld yang mengubah desain Lyreon:
  *
- * Nilai klien disalin dari `yt-dlp/yt-dlp` master (clientVersion Juli 2026) dan
- * `InfinityLoop1308/PipePipeExtractor` v5.3.0 — dua extractor anonim yang paling
- * teruji per September 2026.
+ * 1. **Gate per versi, bukan per bentuk request.** `ANDROID_VR` 1.43.32 dan 1.61.48
+ *    membalas `LOGIN_REQUIRED / "Sign in to confirm you're not a bot"` dengan nol format
+ *    (anonim maupun login, dengan/tanpa visitorData, field device dilucuti pun sama),
+ *    sedangkan 1.65.10 membalas `OK` dengan 100% URL langsung. Yang berbeda hanya versinya.
+ * 2. **`visitorData` wajib**, dikirim ke SEMUA klien sebagai `X-Goog-Visitor-Id`.
+ *    Tanpanya VISIONOS dan ANDROID_VR 1.65.10 menjawab UNPLAYABLE/LOGIN_REQUIRED —
+ *    dua klien terbaik justru yang paling rewel. Lihat [InnertubeConfig].
+ * 3. **URL dari `IOS`/`IPADOS`/`ANDROID_VR` lawas hanyalah pratinjau ~1 MiB** (403 setelah
+ *    offset tertentu). Karena itu klien di ekor tangga tidak boleh dipakai selama klien di
+ *    atasnya masih bisa melayani file utuh — dan setiap URL **divalidasi** dulu dengan probe
+ *    byte terakhir ([StreamUrlValidator]).
+ *
+ * `TVHTML5` dan `WEB_CREATOR` di sini ditandai [PlayerClientSpec.loginRequired] karena
+ * begitu di Meld: keduanya butuh sesi login untuk konten yang dilindungi umur, dan Lyreon
+ * anonim (tanpa cookie) → keduanya hanya dijalankan saat "Tes koneksi", tidak untuk memutar.
+ * Jalur putar anonim yang nyata = URL langsung dari lima klien di atas **atau** manifest HLS.
  */
 internal data class PlayerClientSpec(
-    /** Kunci pendek untuk log/diagnostik ("visionos", "web_embedded", …). */
+    /** Kunci pendek untuk log/diagnostik ("visionos", "android_vr", …). */
     val key: String,
     val clientName: String,
     /** Kosong = pakai versi web hasil scrape [InnertubeConfig]. */
@@ -59,50 +63,74 @@ internal data class PlayerClientSpec(
     /** Nilai header `X-YouTube-Client-Name`. */
     val clientId: String,
     val userAgent: String,
-    /** Host API: `www.youtube.com`, atau `music.youtube.com` untuk WEB_REMIX. */
-    val host: String = "www.youtube.com",
-    val clientScreen: String = "WATCH",
-    val platform: String? = null,
+    /**
+     * Host API. Default `music.youtube.com` — persis Meld, yang mengirim SEMUA request
+     * `player` (termasuk ANDROID_VR dan IOS) ke `music.youtube.com/youtubei/v1/` dengan
+     * `X-Origin`/`Referer` YouTube Music.
+     */
+    val host: String = "music.youtube.com",
+    /** Host cadangan bila [host] gagal di lapisan transport (bukan karena playability). */
+    val altHost: String? = "www.youtube.com",
     val deviceMake: String? = null,
     val deviceModel: String? = null,
     val osName: String? = null,
     val osVersion: String? = null,
     val androidSdkVersion: Int = 0,
     /**
-     * Klien "mobile" gaya app (Android/iOS/visionOS varian app) di beberapa
-     * extractor dikirim ke `youtubei.googleapis.com` dengan query `&t=…&id=…`.
-     * yt-dlp sendiri selalu memakai `www.youtube.com`, jadi varian app hanya
-     * dipakai sebagai pembanding diagnostik.
+     * Kirim `playbackContext.contentPlaybackContext.signatureTimestamp` (STS hasil scrape
+     * ytcfg). Meld menandainya per klien: hanya klien web/TV yang URL-nya masih
+     * ditandatangani `base.js` yang membutuhkannya. VISIONOS/ANDROID_VR/IOS mengirim URL
+     * polos → `false`.
      */
-    val mobileEndpoint: Boolean = false,
+    val useSignatureTimestamp: Boolean = false,
     /**
-     * Butuh poToken (BotGuard) untuk URL langsung. Klien seperti ini TIDAK
-     * dipakai untuk memutar (Lyreon anonim), hanya untuk "Tes koneksi".
+     * Klien ini butuh poToken BotGuard untuk URL langsungnya. Lyreon anonim **tidak**
+     * membuat poToken (Meld pun tidak untuk tangga anonimnya: `VISIONOS`, `ANDROID_VR`,
+     * `IPADOS`, `IOS` semuanya `useWebPoTokens = false`), sehingga klien bertanda ini
+     * tidak dipakai memutar — hanya untuk diagnostik.
      */
-    val requiresPoToken: Boolean = false,
+    val useWebPoTokens: Boolean = false,
     /**
-     * URL langsung klien ini tetap butuh poToken GVS, tetapi **manifest HLS-nya
-     * tidak** — jadi bila response membawa `hlsManifestUrl`, manifest itu yang
-     * dipilih lebih dulu (lihat `pickAudio` di [InnertubeFallback]).
+     * Butuh sesi login untuk konten yang dilindungi umur. Di Lyreon (anonim, tanpa cookie)
+     * klien seperti ini dilewati pada jalur putar, sama seperti `if (client.loginRequired &&
+     * !isLoggedIn) continue` di `YTPlayerUtils.playerResponseForPlayback`.
+     */
+    val loginRequired: Boolean = false,
+    /**
+     * URL langsung klien ini tetap butuh poToken GVS, tetapi **manifest HLS-nya tidak** —
+     * jadi bila response membawa `hlsManifestUrl`, manifest itu dipakai pada lintasan HLS
+     * (lihat `fetchPlayer` di [InnertubeFallback]).
      */
     val preferManifest: Boolean = false,
-    /** False = URL sudah terbaca langsung, tak perlu decipher `base.js` (Rhino). */
-    val needsJsPlayer: Boolean = true,
-    val origin: String? = null,
-    val referer: String? = null,
-    /**
-     * Nilai `context.thirdParty.embedUrl` untuk klien embed. yt-dlp memakai URL
-     * non-YouTube apa pun (mereka pakai `https://www.reddit.com/`) sejak
-     * perbaikan yt-dlp#14826 — memakai URL YouTube justru ditolak.
-     */
+    /** Nilai `context.thirdParty.embedUrl` untuk klien embed. */
     val embedUrlValue: String? = null,
+    /**
+     * Hanya dijalankan saat "Tes koneksi" — tidak pernah masuk tangga putar, meski
+     * secara teknis tidak butuh login/poToken. Dipakai untuk klien pembanding
+     * (mis. `ANDROID_VR` 1.61.48 sebagai kontrol teori gate-per-versi).
+     */
+    val probeOnly: Boolean = false,
     val note: String = "",
-)
+) {
+    /** True bila klien ini masuk tangga putar anonim Lyreon. */
+    val playableAnonymous: Boolean get() = !loginRequired && !useWebPoTokens && !probeOnly
+}
+
 
 /** Hasil pemeriksaan satu response player. */
 internal enum class ClientVerdict {
     /** Ada `adaptiveFormats`/`formats` dengan `url`/`signatureCipher` yang tidak ber-DRM. */
     USABLE,
+
+    /**
+     * Response memberi URL, tetapi CDN menolaknya saat di-probe
+     * ([StreamUrlValidator]): 403/410, atau URL itu cuma pratinjau ~1 MiB yang
+     * mati di tengah lagu. Ini verdict yang membedakan "YouTube memberi URL"
+     * dari "URL itu benar-benar bisa diputar sampai habis" — pembeda yang
+     * membuat diagnosa `streams=4` tapi `ERROR_CODE_IO_BAD_HTTP_STATUS`
+     * akhirnya terbaca.
+     */
+    REJECTED_BY_CDN,
 
     /**
      * Response berisi format tetapi tanpa satu pun URL/cipher — tanda tangan
@@ -160,73 +188,67 @@ internal object PlayerClientLadder {
     /** Ukuran ring buffer diagnostik yang bisa dibaca dari layar Settings. */
     private const val DIAGNOSTIC_LIMIT = 40
 
-    private const val WEB_UA =
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36,gzip(gfe)"
+    /**
+     * UA web milik Meld (`YouTubeClient.USER_AGENT_WEB`) — Firefox 140, bukan Chrome.
+     * Dipakai klien web DAN permintaan `sw.js_data` pengambil visitorData.
+     */
+    internal const val WEB_UA_FIREFOX =
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0"
+
+    /** UA Safari macOS milik Meld untuk `VISIONOS` (Version/18.0, bukan 26.0). */
+    private const val VISIONOS_UA =
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15"
+
+    /** UA Samsung Tizen milik Meld untuk `TVHTML5` (bukan Cobalt). */
+    private const val TIZEN_TV_UA =
+        "Mozilla/5.0(SMART-TV; Linux; Tizen 4.0.0.2) AppleWebkit/605.1.15 (KHTML, like Gecko) SamsungBrowser/9.2 TV Safari/605.1.15"
+
     private const val SAFARI_MAC_UA =
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.5 Safari/605.1.15,gzip(gfe)"
-    private const val VISIONOS_SAFARI_UA =
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_7_3) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15"
     private const val MWEB_UA =
         "Mozilla/5.0 (iPad; CPU OS 16_7_10 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1,gzip(gfe)"
-    private const val COBALT_UA = "Mozilla/5.0 (ChromiumStylePlatform) Cobalt/Version"
-    private const val COBALT_LTS_UA =
-        "Mozilla/5.0 (ChromiumStylePlatform) Cobalt/25.lts.30.1034943-gold (unlike Gecko), Unknown_TV_Unknown_0/Unknown (Unknown, Unknown)"
-
-    /** Nilai `thirdParty.embedUrl` untuk klien embed (URL non-YouTube, lihat yt-dlp#14826). */
-    private const val EMBED_URL = "https://www.reddit.com/"
+    private const val CHROME_UA =
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36,gzip(gfe)"
 
     /**
-     * Urutan default per September 2026 — **klien bebas poToken lebih dulu**,
-     * lalu sumber manifest HLS, lalu klien yang butuh poToken (diagnostik saja).
-     * Pindahkan entri ke atas/bawah saat YouTube mengubah kebijakan: tidak ada
-     * kode lain yang perlu disentuh.
+     * Urutan per September 2026 = **`STREAM_FALLBACK_CLIENTS` milik Meld**, disusun
+     * berdasarkan kemampuan TERUKUR melayani satu file utuh (bukan teori):
+     *
+     * | # | klien | hasil ukur Meld |
+     * |---|---|---|
+     * | 1 | `visionos` | satu-satunya yang 100% 206 sampai byte terakhir (2,4/4,5/4,7 MB), tahan 51 baca ber-jeda 300 dtk |
+     * | 2 | `android_vr` 1.65.10 | `OK`, 100% URL langsung; wajib visitorData |
+     * | 3 | `android_vr_1_43_32` | bitrate non-adaptive (audio tak patah di YT Music); kontrol gate-per-versi |
+     * | 4 | `ipados` | pratinjau ~1 MiB → 403 sesudahnya (lagu mati ~60 dtk) |
+     * | 5 | `ios` | pratinjau ~1 MiB → 403 sesudahnya |
+     *
+     * `TVHTML5` di Meld ada di posisi 3, tetapi `loginRequired = true` sehingga di Lyreon
+     * (anonim) otomatis dilewati pada jalur putar — sama seperti `WEB_CREATOR`. Keduanya
+     * tetap ada di tabel untuk "Tes koneksi".
+     *
+     * `TVHTML5_SIMPLY_EMBEDDED_PLAYER` (clientId 85) TIDAK ada di sini: Meld mengukurnya
+     * mati di sisi server (`ERROR / "YouTube is no longer supported in this application or
+     * device"`, nol format) pada empat cascade beruntun — menyimpannya hanya menambah satu
+     * round-trip ~70 ms yang tak pernah berhasil.
+     *
+     * Pindahkan entri ke atas/bawah saat YouTube mengubah kebijakan: tidak ada kode lain
+     * yang perlu disentuh.
      */
     private val SPECS: List<PlayerClientSpec> = listOf(
         // ------------------------------------------------------------------
-        // 1) Klien bebas poToken — jalur utama anonim
+        // 1) Tangga putar anonim — urutan terukur Meld
         // ------------------------------------------------------------------
         PlayerClientSpec(
             key = "visionos",
             clientName = "VISIONOS",
-            clientVersion = "1.02",
+            clientVersion = "0.1",
             clientId = "101",
-            userAgent = VISIONOS_SAFARI_UA,
-            deviceMake = "Apple",
-            deviceModel = "RealityDevice17,1",
+            userAgent = VISIONOS_UA,
             osName = "visionOS",
-            osVersion = "26.5.23O471",
-            origin = "https://www.youtube.com",
-            needsJsPlayer = false,
-            note = "default anonim yt-dlp: tanpa poToken & tanpa decipher JS",
-        ),
-        PlayerClientSpec(
-            key = "web_embedded",
-            clientName = "WEB_EMBEDDED_PLAYER",
-            clientVersion = "",
-            clientId = "56",
-            userAgent = WEB_UA,
-            origin = "https://www.youtube.com",
-            embedUrlValue = EMBED_URL,
-            needsJsPlayer = true,
-            note = "tanpa poToken; hanya video yang boleh di-embed",
-        ),
-        PlayerClientSpec(
-            key = "tv_downgraded",
-            clientName = "TVHTML5",
-            clientVersion = "5.20260707",
-            clientId = "7",
-            userAgent = COBALT_UA,
-            origin = "https://www.youtube.com",
-            note = "TVHTML5 versi lawas (Cobalt) — sering lolos SABR",
-        ),
-        PlayerClientSpec(
-            key = "tv",
-            clientName = "TVHTML5",
-            clientVersion = "7.20260707.07.00",
-            clientId = "7",
-            userAgent = COBALT_LTS_UA,
-            origin = "https://www.youtube.com",
-            note = "format sering DRM tanpa cookie; itag 18 kadang lolos",
+            osVersion = "1.3.21O771",
+            deviceMake = "Apple",
+            deviceModel = "RealityDevice14,1",
+            note = "satu-satunya klien yang terukur melayani file utuh (100% 206)",
         ),
         PlayerClientSpec(
             key = "android_vr",
@@ -235,18 +257,56 @@ internal object PlayerClientLadder {
             clientId = "28",
             userAgent = "com.google.android.apps.youtube.vr.oculus/1.65.10 " +
                 "(Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip",
-            deviceMake = "Oculus",
-            deviceModel = "Quest 3",
             osName = "Android",
             osVersion = "12L",
+            deviceMake = "Oculus",
+            deviceModel = "Quest 3",
             androidSdkVersion = 32,
-            needsJsPlayer = false,
-            preferManifest = true,
-            note = "HLS bebas poToken; sejak 2026-08-17 URL langsung 403",
+            note = "pin yt-dlp/YouTube.js — WAJIB visitorData, tanpa buildId/cronet/packageName",
+        ),
+        PlayerClientSpec(
+            key = "android_vr_1_43_32",
+            clientName = "ANDROID_VR",
+            clientVersion = "1.43.32",
+            clientId = "28",
+            userAgent = "com.google.android.apps.youtube.vr.oculus/1.43.32 " +
+                "(Linux; U; Android 12; en_US; Quest 3; Build/SQ3A.220605.009.A1; Cronet/107.0.5284.2)",
+            osName = "Android",
+            osVersion = "12",
+            deviceMake = "Oculus",
+            deviceModel = "Quest 3",
+            androidSdkVersion = 32,
+            note = "bitrate non-adaptive (audio tak patah), tanpa AV1; ter-gate per versi",
+        ),
+        PlayerClientSpec(
+            key = "ipados",
+            clientName = "IOS",
+            clientVersion = "21.03.3",
+            clientId = "5",
+            userAgent = "com.google.ios.youtube/21.03.3 (iPad7,6; U; CPU iPadOS 17_7_10 like Mac OS X; en-US)",
+            osName = "iPadOS",
+            osVersion = "17.7.10.21H450",
+            deviceMake = "Apple",
+            deviceModel = "iPad7,6",
+            note = "pratinjau ~1 MiB — hanya bila semua di atasnya gagal",
+        ),
+        PlayerClientSpec(
+            key = "ios",
+            clientName = "IOS",
+            clientVersion = "21.03.1",
+            clientId = "5",
+            userAgent = "com.google.ios.youtube/21.03.1 (iPhone16,2; U; CPU iOS 18_2 like Mac OS X;)",
+            osName = "iOS",
+            osVersion = "18.2.22C152",
+            deviceMake = "Apple",
+            deviceModel = "iPhone16,2",
+            note = "pratinjau ~1 MiB — cadangan paling akhir",
         ),
 
         // ------------------------------------------------------------------
-        // 2) Sumber manifest HLS (URL langsungnya butuh poToken, HLS tidak)
+        // 2) Sumber manifest HLS — lintasan kedua Lyreon (bukan dari Meld)
+        //    Manifest HLS tidak menuntut poToken GVS, jadi tetap layak dicoba
+        //    bila seluruh URL langsung ditolak CDN.
         // ------------------------------------------------------------------
         PlayerClientSpec(
             key = "web_safari",
@@ -254,91 +314,80 @@ internal object PlayerClientLadder {
             clientVersion = "",
             clientId = "1",
             userAgent = SAFARI_MAC_UA,
-            origin = "https://www.youtube.com",
+            host = "www.youtube.com",
             preferManifest = true,
-            note = "Safari UA → HLS pre-merged (m3u8), GVS tanpa poToken",
+            useWebPoTokens = true,
+            note = "Safari UA → HLS pre-merged (m3u8); URL langsungnya butuh poToken",
         ),
         PlayerClientSpec(
             key = "tv_simply",
             clientName = "TVHTML5_SIMPLY",
             clientVersion = "1.0",
             clientId = "75",
-            userAgent = WEB_UA,
-            origin = "https://www.youtube.com",
+            userAgent = CHROME_UA,
+            host = "www.youtube.com",
             preferManifest = true,
+            useWebPoTokens = true,
             note = "HTTPS butuh poToken, HLS tidak",
         ),
 
         // ------------------------------------------------------------------
-        // 3) Pembanding diagnostik (butuh poToken → TIDAK dipakai memutar)
+        // 3) Diagnostik saja ("Tes koneksi") — tidak dipakai memutar
         // ------------------------------------------------------------------
         PlayerClientSpec(
-            key = "visionos_app",
-            clientName = "VISIONOS",
-            clientVersion = "1.02",
-            clientId = "101",
-            userAgent = "com.google.visionos.youtube/1.02(RealityDevice14,1; U; CPU visionOS 25_6_0 like Mac OS X; US)",
-            platform = "MOBILE",
-            deviceMake = "Apple",
-            deviceModel = "RealityDevice14,1",
-            osName = "visionOS",
-            osVersion = "25.6.0.23O471",
-            mobileEndpoint = true,
-            needsJsPlayer = false,
-            note = "varian app-style (PipePipe) — pembanding bentuk request",
+            key = "tvhtml5",
+            clientName = "TVHTML5",
+            clientVersion = "7.20260213.00.00",
+            clientId = "7",
+            userAgent = TIZEN_TV_UA,
+            useSignatureTimestamp = true,
+            useWebPoTokens = true,
+            loginRequired = true,
+            note = "Meld: untuk track unggahan pribadi (MLPT); butuh login",
         ),
         PlayerClientSpec(
-            key = "ios",
-            clientName = "IOS",
-            clientVersion = "20.03.02",
-            clientId = "5",
-            userAgent = "com.google.ios.youtube/20.03.02(iPhone16,2; U; CPU iOS 18_2_1 like Mac OS X; US)",
-            platform = "MOBILE",
-            deviceMake = "Apple",
-            deviceModel = "iPhone16,2",
-            osName = "iOS",
-            osVersion = "18.1.0.22B83",
-            mobileEndpoint = true,
-            requiresPoToken = true,
-            preferManifest = true,
-            note = "GVS/Player butuh poToken",
-        ),
-        PlayerClientSpec(
-            key = "android",
-            clientName = "ANDROID",
-            clientVersion = "21.03.36",
-            clientId = "3",
-            userAgent = "com.google.android.youtube/21.03.36 (Linux; U; Android 15; US) gzip",
-            platform = "MOBILE",
-            osName = "Android",
-            osVersion = "16",
-            androidSdkVersion = 36,
-            mobileEndpoint = true,
-            requiresPoToken = true,
-            note = "GVS/Player butuh poToken",
-        ),
-        PlayerClientSpec(
-            key = "web",
-            clientName = "WEB",
-            clientVersion = "",
-            clientId = "1",
-            userAgent = WEB_UA,
-            origin = "https://www.youtube.com",
-            referer = "https://www.youtube.com/",
-            requiresPoToken = true,
-            note = "SABR-only tanpa poToken",
+            key = "web_creator",
+            clientName = "WEB_CREATOR",
+            clientVersion = "1.20260213.00.00",
+            clientId = "62",
+            userAgent = WEB_UA_FIREFOX,
+            useSignatureTimestamp = true,
+            useWebPoTokens = true,
+            loginRequired = true,
+            note = "satu-satunya klien OK untuk konten dibatasi umur — butuh login + pot=",
         ),
         PlayerClientSpec(
             key = "web_remix",
             clientName = "WEB_REMIX",
-            clientVersion = "1.20260707.12.00",
+            clientVersion = "1.20260213.01.00",
             clientId = "67",
-            userAgent = WEB_UA,
-            host = "music.youtube.com",
-            origin = "https://music.youtube.com",
-            referer = "https://music.youtube.com/",
-            requiresPoToken = true,
-            note = "YouTube Music web — SABR-only tanpa poToken",
+            userAgent = WEB_UA_FIREFOX,
+            useSignatureTimestamp = true,
+            useWebPoTokens = true,
+            note = "klien metadata Meld; formatnya di balik cipher/n-challenge",
+        ),
+        PlayerClientSpec(
+            key = "web",
+            clientName = "WEB",
+            clientVersion = "2.20260213.00.00",
+            clientId = "1",
+            userAgent = WEB_UA_FIREFOX,
+            note = "SABR-only tanpa poToken",
+        ),
+        PlayerClientSpec(
+            key = "android_vr_1_61_48",
+            clientName = "ANDROID_VR",
+            clientVersion = "1.61.48",
+            clientId = "28",
+            userAgent = "com.google.android.apps.youtube.vr.oculus/1.61.48 " +
+                "(Linux; U; Android 12; en_US; Quest 3; Build/SQ3A.220605.009.A1; Cronet/132.0.6808.3)",
+            osName = "Android",
+            osVersion = "12",
+            deviceMake = "Oculus",
+            deviceModel = "Quest 3",
+            androidSdkVersion = 32,
+            probeOnly = true,
+            note = "KONTROL: versi ini ter-gate (LOGIN_REQUIRED) sedangkan 1.65.10 OK",
         ),
         PlayerClientSpec(
             key = "mweb",
@@ -346,10 +395,10 @@ internal object PlayerClientLadder {
             clientVersion = "",
             clientId = "2",
             userAgent = MWEB_UA,
-            origin = "https://m.youtube.com",
-            referer = "https://m.youtube.com/",
-            requiresPoToken = true,
-            note = "butuh poToken; tanpa itu 'The page needs to be reloaded'",
+            host = "www.youtube.com",
+            useWebPoTokens = true,
+            probeOnly = true,
+            note = "sering memberi URL, tapi URL web butuh n-transform → 403/throttle",
         ),
     )
 
@@ -385,7 +434,7 @@ internal object PlayerClientLadder {
      *   (diagnostik penuh, termasuk klien mati).
      */
     fun ordered(forPlayback: Boolean = true): List<PlayerClientSpec> {
-        val base = SPECS.filter { !forPlayback || !it.requiresPoToken }.toMutableList()
+        val base = SPECS.filter { !forPlayback || it.playableAnonymous }.toMutableList()
         lastGood.get()?.let { good ->
             val index = base.indexOfFirst { it.key == good }
             if (index > 0) base.add(0, base.removeAt(index))
@@ -401,6 +450,34 @@ internal object PlayerClientLadder {
 
     fun specOf(key: String): PlayerClientSpec? = SPECS.firstOrNull { it.key == key }
 
+    /**
+     * Klien sumber manifest HLS — lintasan kedua Lyreon.
+     *
+     * Bukan bagian dari Meld (Meld tidak memutar HLS), tetapi manifest HLS tidak menuntut
+     * poToken GVS, jadi bila SEMUA URL langsung ditolak CDN lintasan ini masih bisa
+     * menyelamatkan pemutaran. Hanya dijalankan setelah tangga utama gagal.
+     */
+    fun hlsSpecs(): List<PlayerClientSpec> = SPECS.filter { it.preferManifest }
+
+    /**
+     * User-Agent yang harus dipakai saat meminta byte dari `googlevideo.com`.
+     *
+     * CDN mencocokkan UA request dengan klien yang mencetak URL (`c=` + `cver=` di query);
+     * UA yang tidak cocok adalah penyebab klasik 403 padahal URL-nya sah. Dulu Lyreon
+     * menebak dari `c=` saja dan memasang UA app lawas (mis. `com.google.android.youtube/
+     * 19.45.38` untuk `c=ANDROID_VR` — nama paket SALAH, versi salah). Sekarang UA diambil
+     * dari spec yang benar-benar dipakai resolusi, dicocokkan versi lebih dulu.
+     */
+    fun streamUserAgentFor(clientName: String?, clientVersion: String?): String? {
+        if (clientName.isNullOrBlank()) return null
+        val exact = SPECS.firstOrNull {
+            it.clientName.equals(clientName, ignoreCase = true) &&
+                !clientVersion.isNullOrBlank() && it.clientVersion == clientVersion
+        }
+        return (exact ?: SPECS.firstOrNull { it.clientName.equals(clientName, ignoreCase = true) })
+            ?.userAgent
+    }
+
     /** Semua klien (termasuk yang butuh poToken) — untuk laporan diagnostik. */
     fun allSpecs(): List<PlayerClientSpec> = SPECS
 
@@ -410,7 +487,13 @@ internal object PlayerClientLadder {
             lastGood.set(key)
             cooldownUntil.remove(key)
         }
-        if (verdict == ClientVerdict.SABR_ONLY || verdict == ClientVerdict.DRM_ONLY) {
+        // `REJECTED_BY_CDN` ikut dihitung sebagai "tekanan": URL yang ditolak CDN dan
+        // response SABR-only sama-sama berarti YouTube sedang menutup akses anonim, dan
+        // sinyal ini yang dipakai `PlayerManager.isSabrFailure()` saat tidak ada tanda
+        // eksplisit di rantai cause.
+        if (verdict == ClientVerdict.SABR_ONLY || verdict == ClientVerdict.DRM_ONLY ||
+            verdict == ClientVerdict.REJECTED_BY_CDN
+        ) {
             lastSabrAtMs = System.currentTimeMillis()
             cooldownUntil[key] = lastSabrAtMs + COOLDOWN_MS
         }
@@ -429,6 +512,13 @@ internal object PlayerClientLadder {
         }
         if (verdict == ClientVerdict.DRM_ONLY) {
             Log.w(TAG, "klien '$key' membalas format ber-DRM (butuh cookie guest) — dilewati")
+        }
+        if (verdict == ClientVerdict.REJECTED_BY_CDN) {
+            Log.w(
+                TAG,
+                "klien '$key' memberi URL tetapi CDN menolaknya ($detail) — " +
+                    "kemungkinan pratinjau ~1 MiB atau 403; lanjut ke klien berikutnya",
+            )
         }
     }
 
@@ -597,8 +687,15 @@ internal object PlayerClientLadder {
      */
     fun snapshot(): String = buildString {
         append("ladder: playback=").append(ordered(true).joinToString(",") { it.key }).append('\n')
+        append("hls=").append(hlsSpecs().joinToString(",") { it.key }).append('\n')
         append("probe=").append(ordered(false).joinToString(",") { it.key }).append('\n')
         append("lastGood=").append(lastGood.get() ?: "-").append('\n')
+        // visitorData wajib ada: tanpanya VISIONOS/ANDROID_VR 1.65.10 menjawab LOGIN_REQUIRED.
+        // Baris ini yang membedakan "YouTube memblokir IP kita" dari "kita mengirim request
+        // tanpa identitas sesi".
+        append("visitor=").append(InnertubeConfig.visitorOrigin())
+            .append(" present=").append(InnertubeConfig.visitor() != null)
+            .append(" sts=").append(InnertubeConfig.signatureTimestamp() ?: "-").append('\n')
         append("sabrTotal=").append(sabrTotal.get())
             .append(" extractorBypassed=").append(extractorBypassed()).append('\n')
     }

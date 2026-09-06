@@ -252,7 +252,7 @@
     <string name="health_retry">TRY AGAIN</string>
     <string name="health_dismiss">DISMISS</string>
     <string name="health_diag_title">Client diagnostics</string>
-    <string name="health_diag_body">This test walks the whole InnerTube client ladder and reports which clients still return audio URLs — handy whenever YouTube changes policy again.</string>
+    <string name="health_diag_body">This test walks the entire InnerTube client ladder, probes every audio URL with a last-byte request, then reports which clients are genuinely playable — useful whenever YouTube changes policy.</string>
     <string name="health_test_running">TESTING…</string>
     <string name="health_test_ok">Stream available</string>
     <string name="health_test_fail">No path returned an audio URL</string>
@@ -266,6 +266,9 @@
     <string name="health_copied">Diagnostics copied to clipboard</string>
     <string name="health_reset">Reset stream cache</string>
     <string name="health_test_manifest">HLS manifest available via %1$s (playable)</string>
+    <string name="health_test_cdn_reject">Audio URLs rejected by the CDN (403 / ~1 MiB preview) on some clients</string>
+    <string name="health_test_url_only">%1$s returned a URL that failed the read test</string>
+    <string name="health_test_visitor">visitorData: %1$s</string>
     <string name="health_test_drm">Some clients returned DRM-locked formats (needs a YouTube guest session)</string>
     <string name="health_test_sabr">SABR-only responses on some clients</string>
     <string name="health_test_hls">Only HLS available (needs an HLS player)</string>

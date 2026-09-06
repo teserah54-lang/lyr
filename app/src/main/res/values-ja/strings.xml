@@ -252,7 +252,7 @@
     <string name="health_retry">再試行</string>
     <string name="health_dismiss">閉じる</string>
     <string name="health_diag_title">クライアント診断</string>
-    <string name="health_diag_body">InnerTube のクライアント階梯をすべて試し、どのクライアントが音声 URL を返すかを表示します。YouTube の仕様変更時に役立ちます。</string>
+    <string name="health_diag_body">このテストは InnerTube クライアントの全梯子を試行し、各音声 URL を最終バイト要求で検証してから、実際に再生できるクライアントを報告します。YouTube の方針変更時に役立ちます。</string>
     <string name="health_test_running">テスト中…</string>
     <string name="health_test_ok">ストリーム利用可能</string>
     <string name="health_test_fail">どの経路も音声 URL を返しませんでした</string>
@@ -266,6 +266,9 @@
     <string name="health_copied">診断をクリップボードにコピーしました</string>
     <string name="health_reset">ストリームキャッシュをリセット</string>
     <string name="health_test_manifest">%1$s 経由で HLS マニフェストあり（再生可能）</string>
+    <string name="health_test_cdn_reject">一部のクライアントの音声 URL が CDN に拒否されました（403 / 約 1 MiB のプレビュー）</string>
+    <string name="health_test_url_only">%1$s は URL を返しましたが読み取り検証に失敗しました</string>
+    <string name="health_test_visitor">visitorData: %1$s</string>
     <string name="health_test_drm">一部のクライアントは DRM 保護フォーマットを返しました（YouTube のゲストセッションが必要）</string>
     <string name="health_test_sabr">一部クライアントで SABR-only を検出</string>
     <string name="health_test_hls">HLS のみ利用可能（HLS プレーヤーが必要）</string>

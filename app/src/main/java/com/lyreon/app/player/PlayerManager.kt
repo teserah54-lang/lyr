@@ -379,14 +379,15 @@ class PlayerManager(
 
     /**
      * Menelusuri rantai cause mencari tanda YouTube menutup akses anonim:
-     * SABR-only, hanya-HLS, atau format ber-DRM.
+     * SABR-only, hanya-HLS, format ber-DRM, atau URL yang ditolak CDN
+     * (403 / pratinjau ~1 MiB — pola yang membuat lagu mati di tengah).
      */
     private fun isSabrFailure(error: PlaybackException): Boolean {
         var node: Throwable? = error
         var depth = 0
         while (node != null && depth < 8) {
             if (node is com.lyreon.app.yt.innertube.StreamUnavailableException) {
-                return node.sabrOnly || node.hlsOnly || node.drmOnly
+                return node.sabrOnly || node.hlsOnly || node.drmOnly || node.cdnRejected
             }
             val message = node.message.orEmpty()
             if (message.contains("SABR", ignoreCase = true)) return true

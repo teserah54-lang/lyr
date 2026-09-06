@@ -278,7 +278,7 @@
     <string name="health_retry">COBA LAGI</string>
     <string name="health_dismiss">TUTUP</string>
     <string name="health_diag_title">Diagnostik klien</string>
-    <string name="health_diag_body">Tes ini mencoba seluruh tangga klien InnerTube dan melaporkan klien mana yang masih memberi URL audio — berguna tiap kali YouTube mengubah kebijakan.</string>
+    <string name="health_diag_body">Tes ini mencoba seluruh tangga klien InnerTube, menguji tiap URL audio dengan permintaan byte terakhir, lalu melaporkan klien mana yang benar-benar bisa diputar — berguna tiap kali YouTube mengubah kebijakan.</string>
     <string name="health_test_running">MENGUJI…</string>
     <string name="health_test_ok">Stream tersedia</string>
     <string name="health_test_fail">Tidak ada jalur yang memberi URL audio</string>
@@ -292,6 +292,9 @@
     <string name="health_copied">Diagnostik disalin ke papan klip</string>
     <string name="health_reset">Reset cache stream</string>
     <string name="health_test_manifest">Manifest HLS tersedia via %1$s (bisa diputar)</string>
+    <string name="health_test_cdn_reject">URL audio ditolak CDN (403 / pratinjau ~1 MiB) pada sebagian klien</string>
+    <string name="health_test_url_only">%1$s memberi URL tetapi tidak lolos uji baca</string>
+    <string name="health_test_visitor">visitorData: %1$s</string>
     <string name="health_test_drm">Sebagian klien membalas format ber-DRM (butuh sesi guest YouTube)</string>
     <string name="health_test_sabr">SABR-only terdeteksi pada sebagian klien</string>
     <string name="health_test_hls">Hanya HLS yang tersedia (perlu pemutar HLS)</string>

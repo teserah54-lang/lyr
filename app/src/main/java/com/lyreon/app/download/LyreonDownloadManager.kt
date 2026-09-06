@@ -123,6 +123,15 @@ class LyreonDownloadManager(
      */
     private suspend fun downloadTrack(entry: DownloadEntity): File = withContext(Dispatchers.IO) {
         val resolved = locator.youtube.resolveCachedBlocking(entry.videoId)
+        // URL cadangan terakhir (ditolak CDN, kemungkinan cuma pratinjau ~1 MiB) tidak
+        // boleh diunduh: file hasilnya terpotong diam-diam. Lebih baik gagal dengan alasan
+        // jelas — pemutaran tetap memakai URL itu, unduhan tidak.
+        if (!resolved.validated) {
+            throw IOException(
+                "URL stream untuk ${entry.videoId} tidak lolos verifikasi CDN " +
+                    "(kemungkinan pratinjau terpotong) — unduhan dibatalkan",
+            )
+        }
         // hapus varian lama dengan ekstensi berbeda
         downloadsDir.listFiles { f -> f.name.startsWith("${entry.videoId}.") }
             ?.forEach { it.delete() }

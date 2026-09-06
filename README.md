@@ -40,7 +40,7 @@ LYREON memutar **hanya audio** dari YouTube Music (Opus/WebM atau AAC/M4A) sehin
 | 14 | **Sleep timer** | 5–90 menit + indikator sisa waktu |
 | 15 | **Shuffle & Repeat + kualitas audio** | Terbaik / Seimbang / Hemat data |
 | 16 | **Restore sesi + deep link** | Antrean pulih saat app dibuka; terima link `youtu.be` / `youtube.com/watch` |
-| 17 | **Streaming 100% anonim** | Tanpa akun, tanpa cookie, tanpa server perantara: tangga klien InnerTube bebas poToken (`visionos`, `web_embedded`, TV) + pemutaran **HLS** untuk jalur yang hanya memberi manifest |
+| 17 | **Streaming 100% anonim** | Tanpa akun, tanpa cookie, tanpa server perantara: tangga klien InnerTube hasil porting **Meld** (`visionos` → `android_vr` 1.65.10 → `android_vr` 1.43.32 → `ipados` → `ios`), tiap URL **divalidasi** dengan probe byte terakhir sebelum diputar, plus pemutaran **HLS** untuk jalur yang hanya memberi manifest |
 | 18 | **Kesehatan stream + diagnostik klien** | *Circuit breaker* berbasis bukti pemutaran (bukan `STATE_READY`), pesan gagal yang actionable, "Tes koneksi" per klien, tombol salin diagnostik, dan radar drift extractor |
 
 *Bonus:* tema Gelap/Kertas/Sistem, reduce‑motion, retry otomatis saat URL kedaluwarsa, snackbar error.
@@ -52,7 +52,7 @@ LYREON memutar **hanya audio** dari YouTube Music (Opus/WebM atau AAC/M4A) sehin
 | Bahasa | **Kotlin 2.4** (K2), JVM target 17 |
 | UI | **Jetpack Compose** (BOM `2026.01.01`), Material 3 |
 | Player | **AndroidX Media3 1.10.1** — `ExoPlayer` + `MediaSession` (background) |
-| Extractor | **MetrolistExtractor** (`com.github.MetrolistGroup:MetrolistExtractor`, di-pin per commit) — fork NewPipeExtractor, plus **tangga klien InnerTube** langsung ke Google (`youtubei/v1`) via `PlayerClientLadder` bila extractor utama gagal. **Selalu anonim** (`setTokens()` tidak pernah dipanggil) |
+| Extractor | **MetrolistExtractor** (`com.github.MetrolistGroup:MetrolistExtractor`, di-pin per commit) — fork NewPipeExtractor, plus **tangga klien InnerTube** langsung ke Google (`music.youtube.com/youtubei/v1`) via `PlayerClientLadder` bila extractor utama gagal. Spesifikasi klien disalin dari [FrancescoGrazioso/Meld](https://github.com/FrancescoGrazioso/Meld) dan dijaga tetap sinkron oleh `tools/ci/meld-client-radar.sh`. **Selalu anonim** (`setTokens()` tidak pernah dipanggil) |
 | Jaringan | **OkHttp 5.1**, **Coil 3** (gambar), `StreamingDataSource` kustom untuk resolve stream lazily |
 | Persistence | **Room 2.8** (SQLite), **DataStore** (preferensi/settings + profil selera) |
 | Navigasi | **Navigation Compose** |
@@ -76,7 +76,8 @@ LYREON memutar **hanya audio** dari YouTube Music (Opus/WebM atau AAC/M4A) sehin
 │                 └─ LocalMusicRepository (MediaStore + SAF, thumbnail album art)
 │
 ├─ Streaming ────┬─ PlayerClientLadder (klien InnerTube anonim + deteksi SABR/DRM/HLS)
-│  (ketahanan)    ├─ InnertubeFallback (tangga klien → URL audio ATAU manifest HLS)
+│  (ketahanan)    ├─ StreamUrlValidator (probe URL sebelum diputar → tolak 403/pratinjau)
+│                ├─ InnertubeFallback (tangga klien → URL audio ATAU manifest HLS)
 │  anonim         ├─ ResolvingDataSource → HlsRequiredException → MediaItem m3u8
 │                 └─ PlayerManager.StreamHealth (circuit breaker berbasis kemajuan)
 │
@@ -230,16 +231,21 @@ dan karena ini kebijakan server, **semua lagu gagal sekaligus** → auto-skip �
 
 **Lyreon tetap anonim**: tidak ada akun, tidak ada cookie, `setTokens()` tidak
 pernah dipanggil. Konsekuensinya hanya dua barang yang bisa diputar — URL langsung
-dari klien bebas poToken, dan **manifest HLS** (HLS tidak menuntut poToken GVS).
-Karena itu Lyreon mendukung keduanya:
+dari klien yang tidak menuntut poToken, dan **manifest HLS** (HLS tidak menuntut
+poToken GVS). Sejak September 2026 daftar klien itu **disalin dari
+[Meld](https://github.com/FrancescoGrazioso/Meld)**, klien musik anonim yang
+pengembangnya mengukur klien mana yang sanggup melayani *satu file utuh* (bukan
+sekadar mengembalikan URL), dan setiap URL diuji dulu sebelum diserahkan ke
+pemutar:
 
 | # | Lapisan | Isi |
 |---|---------|-----|
 | 1 | Knob & bypass extractor | `setLoadingTimeout(12)` (default fork 5 s sering kepotong di jaringan seluler), `setFetchDislike(false)`, dan extractor **di-bypass 10 menit** setelah 2× SABR beruntun supaya tiap lagu tidak membayar timeout extractor |
-| 2 | Tangga klien anonim | `PlayerClientLadder`: `visionos → web_embedded → tv_downgraded → tv → android_vr → web_safari(HLS) → tv_simply(HLS)`, deteksi SABR-only/HLS-only/DRM, urutan adaptif, *cooldown* 3 menit, `signatureTimestamp` dari ytcfg. Klien yang butuh poToken (`web`, `web_remix`, `mweb`, `android`, `ios`) **hanya dijalankan saat Tes koneksi**, tidak untuk memutar |
+| 2 | Tangga klien anonim (porting **Meld**) | `PlayerClientLadder`: `visionos` 0.1 → `android_vr` 1.65.10 → `android_vr` 1.43.32 → `ipados` → `ios`, semua ke `music.youtube.com` dengan `X-Goog-Visitor-Id` (diambil dari `sw.js_data` — **wajib**, tanpa itu VISIONOS/ANDROID_VR menjawab `LOGIN_REQUIRED`). Deteksi SABR-only/HLS-only/DRM, urutan adaptif, *cooldown* 3 menit, `signatureTimestamp` hanya untuk klien web/TV. Klien yang butuh login atau poToken (`tvhtml5`, `web_creator`, `web_remix`, `web`, `mweb`) **hanya dijalankan saat Tes koneksi** |
+| 2b | Validasi URL sebelum diputar | `StreamUrlValidator`: `HEAD` dengan `Range: bytes=clen-1-clen-1` (byte **terakhir** file) → 2xx/405 diterima, 403/410 ditolak dan tangga lanjut. Ini yang membuang URL "pratinjau ~1 MiB" penyebab lagu mati di detik ke-60, dan membuat URL dari extractor NewPipe ikut teruji. Bila semua URL langsung ditolak, jalur **HLS** dicoba; bila itu pun gagal, URL terakhir tetap dipakai untuk putar (`validated = false`) tetapi **ditolak untuk unduhan** |
 | 3 | Pemutaran HLS | `media3-exoplayer-hls` + `HlsRequiredException`: saat resolusi menghasilkan m3u8, `MediaItem` ditukar ke URL manifest + MIME yang benar, dan track video dimatikan (hemat kuota). Lagu berikutnya disiapkan lebih dulu oleh `warmUpcoming()` |
 | 4 | *Circuit breaker* | `consecutiveFailures` di-reset **hanya** setelah bukti kemajuan (posisi maju ≥ 8 dtk), plus rem burst (>4 skip/30 dtk). Saat trip: antrean dipertahankan, pesan actionable, radio auto-extend ditahan |
-| 5 | Diagnostik | Settings → *KESEHATAN STREAM*: **Tes koneksi** (verdict + latensi tiap klien), **Salin diagnostik** (laporan teks untuk laporan bug), **Reset cache stream**, riwayat 40 kejadian |
+| 5 | Diagnostik | Settings → *KESEHATAN STREAM*: **Tes koneksi** (verdict + latensi + hasil probe CDN tiap klien, termasuk `visitorData` dari mana), **Salin diagnostik** (laporan teks untuk laporan bug), **Reset cache stream**, riwayat 40 kejadian |
 
 Rincian lengkap — peta kebijakan poToken per klien, runbook "semua lagu gagal lagi",
 riwayat penyesuaian, dan pekerjaan lanjutan (poToken/BotGuard, SABR native,
@@ -247,7 +253,7 @@ migrasi PipePipeExtractor): [`docs/streaming-resilience.md`](docs/streaming-resi
 
 ## 🧩 Catatan & Keterbatasan
 
-- **Fragilitas extractor:** YouTube mengubah kebijakan klien secara berkala (SABR, poToken, DRM) → sebagian atau semua lagu bisa “tak tersedia”. Penanganan Lyreon: tangga klien **anonim** (URL langsung dari klien bebas poToken), **pemutaran HLS** untuk jalur manifest, bypass extractor saat terbukti SABR, retry + resolve ulang saat token basi, kandidat format beda (m4a ↔ webm/opus), dan *circuit breaker* agar kegagalan tidak berubah jadi loop. Yang **belum** didukung: poToken/BotGuard dan pemutaran SABR native — alasan beserta syaratnya ada di [`docs/streaming-resilience.md`](docs/streaming-resilience.md) §7.
+- **Fragilitas extractor:** YouTube mengubah kebijakan klien secara berkala (SABR, poToken, DRM, gate per versi klien) → sebagian atau semua lagu bisa “tak tersedia”. Penanganan Lyreon: tangga klien **anonim** hasil porting Meld, **validasi tiap URL** sebelum diputar (probe byte terakhir → menolak pratinjau ~1 MiB), **pemutaran HLS** untuk jalur manifest, bypass extractor saat terbukti SABR, penyegaran `visitorData` setelah 3 respons ditolak, retry + resolve ulang saat token basi, kandidat format beda (m4a ↔ webm/opus), dan *circuit breaker* agar kegagalan tidak berubah jadi loop. Yang **tidak** didukung dan alasannya: poToken/BotGuard (jalur anonim Meld pun tidak memakainya) dan pemutaran SABR native — lihat [`docs/streaming-resilience.md`](docs/streaming-resilience.md) §7.
 - **Tanpa akun, tanpa cookie:** keputusan produk (privasi + tidak merepotkan pengguna). Risikonya diterima sadar: bila suatu hari YouTube menutup semua celah anonim, pemutaran berhenti sampai tangga klien disesuaikan — lihat §3 dokumen yang sama.
 - **Charts artis** (tab Search/Home) mengandalkan YouTube Music Charts + profil kanal; bila gagal, digunakan kurasi per‑wilayah agar kartu tidak kosong.
 - **Legalitas:** hanya untuk pemutaran pribadi; bukan pengganti layanan berlangganan resmi.

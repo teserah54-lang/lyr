@@ -252,7 +252,7 @@
     <string name="health_retry">फिर कोशिश करें</string>
     <string name="health_dismiss">बंद करें</string>
     <string name="health_diag_title">क्लाइंट निदान</string>
-    <string name="health_diag_body">यह टेस्ट पूरी InnerTube क्लाइंट सीढ़ी आज़माता है और बताता है कि कौन सा क्लाइंट अभी ऑडियो URL दे रहा है।</string>
+    <string name="health_diag_body">यह टेस्ट पूरे InnerTube क्लाइंट लैडर को आज़माता है, हर ऑडियो URL की अंतिम-बाइट जाँच करता है, फिर बताता है कि कौन से क्लाइंट सच में चलेंगे — YouTube की नीति बदलने पर उपयोगी।</string>
     <string name="health_test_running">जाँच जारी…</string>
     <string name="health_test_ok">स्ट्रीम उपलब्ध</string>
     <string name="health_test_fail">किसी पथ ने ऑडियो URL नहीं दिया</string>
@@ -266,6 +266,9 @@
     <string name="health_copied">डायग्नोस्टिक क्लिपबोर्ड पर कॉपी हो गया</string>
     <string name="health_reset">स्ट्रीम कैश रीसेट करें</string>
     <string name="health_test_manifest">%1$s से HLS मैनिफ़ेस्ट उपलब्ध (चलने योग्य)</string>
+    <string name="health_test_cdn_reject">कुछ क्लाइंट के ऑडियो URL को CDN ने अस्वीकार किया (403 / ~1 MiB झलक)</string>
+    <string name="health_test_url_only">%1$s ने URL दिया लेकिन रीड टेस्ट में असफल रहा</string>
+    <string name="health_test_visitor">visitorData: %1$s</string>
     <string name="health_test_drm">कुछ क्लाइंट ने DRM-लॉक फ़ॉर्मैट लौटाए (YouTube अतिथि सत्र चाहिए)</string>
     <string name="health_test_sabr">कुछ क्लाइंट पर SABR-only मिला</string>
     <string name="health_test_hls">केवल HLS उपलब्ध (HLS प्लेयर चाहिए)</string>

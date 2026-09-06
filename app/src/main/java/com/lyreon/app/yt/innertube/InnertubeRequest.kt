@@ -3,7 +3,6 @@ package com.lyreon.app.yt.innertube
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
-import org.json.JSONArray
 import org.json.JSONObject
 
 /** Bangun permintaan InnerTube (youtubei/v1) yang siap dikirim ke Google. */
@@ -87,12 +86,12 @@ internal object InnertubeRequest {
     }
 
     // ------------------------------------------------------------------
-    // Jalur tangga klien (PlayerClientLadder) — bentuk request mengikuti
-    // extractor hulu per September 2026: klien mobile ke youtubei.googleapis.com
-    // dengan `&t=…&id=…`, klien web/TV ke www.youtube.com tanpa parameter `key`.
+    // Jalur tangga klien (PlayerClientLadder) — bentuk request disalin dari
+    // `InnerTube.ytClient` + `InnerTube.player` milik Meld (FrancescoGrazioso/
+    // Meld, September 2026), dikurangi semua yang berhubungan dengan akun.
     // ------------------------------------------------------------------
 
-    /** Alfabet & panjang nonce sama dengan hulu: `cpn` 16 karakter, `t` 12. */
+    /** Alfabet & panjang nonce: `cpn` 16 karakter. */
     private val NONCE_ALPHABET =
         "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_".toCharArray()
     private val nonceRandom = java.security.SecureRandom()
@@ -106,15 +105,28 @@ internal object InnertubeRequest {
     /**
      * Request player untuk satu [PlayerClientSpec].
      *
-     * Bentuk request mengikuti yt-dlp master (September 2026):
-     * - `POST https://{host}/youtubei/v1/player?key=…&prettyPrint=false`
-     * - header `X-YouTube-Client-Name`, `X-YouTube-Client-Version`,
-     *   `X-Goog-Visitor-Id`, `Origin`, dan `User-Agent` milik klien
-     * - body `context.client{…}` + `videoId` + `playbackContext.contentPlaybackContext`
-     *   (`html5Preference`, dan `signatureTimestamp` untuk klien yang URL-nya
-     *   masih perlu di-decipher) + `contentCheckOk`/`racyCheckOk`
+     * Bentuknya mengikuti Meld, yang mengukurnya di perangkat per September 2026:
+     * - `POST https://{host}/youtubei/v1/player?prettyPrint=false` dengan host default
+     *   **`music.youtube.com`** untuk SEMUA klien (termasuk ANDROID_VR/IOS) — bukan
+     *   `www.youtube.com`, bukan `youtubei.googleapis.com`
+     * - header: `X-Goog-Api-Format-Version: 1`, `X-YouTube-Client-Name: {clientId}`,
+     *   `X-YouTube-Client-Version`, `Origin` + `X-Origin`, `Referer`, dan
+     *   **`X-Goog-Visitor-Id` untuk setiap klien** — termasuk yang `loginSupported = false`.
+     *   Meld: tanpa visitorData, VISIONOS dan ANDROID_VR 1.65.10 menjawab
+     *   UNPLAYABLE/LOGIN_REQUIRED dengan nol format.
+     * - body `context.client{…}` hanya berisi field yang benar-benar dikirim Meld:
+     *   `clientName`, `clientVersion`, `osName`, `osVersion`, `deviceMake`, `deviceModel`,
+     *   `androidSdkVersion`, `gl`, `hl`, `visitorData`. Tidak ada `clientScreen`,
+     *   `platform`, `buildId`, `cronetVersion`, `packageName`, `utcOffsetMinutes`.
+     * - `playbackContext.contentPlaybackContext.signatureTimestamp` HANYA untuk klien
+     *   dengan `useSignatureTimestamp = true` (klien web/TV). VISIONOS/ANDROID_VR/IOS
+     *   mengirim URL polos sehingga STS tidak dikirim sama sekali.
+     * - `serviceIntegrityDimensions.poToken` hanya bila klien `useWebPoTokens` dan kita
+     *   punya token. Lyreon anonim tidak membuat poToken → field ini tidak pernah terisi;
+     *   parameternya tetap ada supaya bentuk body identik dengan Meld bila kelak
+     *   generator poToken ditambahkan.
      *
-     * Lyreon anonim: TIDAK ada header Cookie/Authorization yang dikirim.
+     * Lyreon anonim: TIDAK ada header `Cookie` maupun `Authorization` yang dikirim.
      */
     fun playerFromSpec(
         spec: PlayerClientSpec,
@@ -122,77 +134,107 @@ internal object InnertubeRequest {
         visitorData: String?,
         webVersion: String,
         signatureTimestamp: Int? = null,
+        playlistId: String? = null,
+        poToken: String? = null,
+    ): Request = playerRequest(spec, spec.host, videoId, visitorData, webVersion, signatureTimestamp, playlistId, poToken)
+
+    private fun playerRequest(
+        spec: PlayerClientSpec,
+        host: String,
+        videoId: String,
+        visitorData: String?,
+        webVersion: String,
+        signatureTimestamp: Int?,
+        playlistId: String?,
+        poToken: String?,
     ): Request {
         val version = spec.clientVersion.ifBlank { webVersion }
+        val origin = "https://$host"
 
         val client = JSONObject()
             .put("clientName", spec.clientName)
             .put("clientVersion", version)
-            .put("clientScreen", spec.clientScreen)
-        spec.platform?.let { client.put("platform", it) }
-        visitorData?.takeIf { it.isNotBlank() }?.let { client.put("visitorData", it) }
-        spec.deviceMake?.let { client.put("deviceMake", it) }
-        spec.deviceModel?.let { client.put("deviceModel", it) }
         spec.osName?.let { client.put("osName", it) }
         spec.osVersion?.let { client.put("osVersion", it) }
+        spec.deviceMake?.let { client.put("deviceMake", it) }
+        spec.deviceModel?.let { client.put("deviceModel", it) }
         if (spec.androidSdkVersion > 0) client.put("androidSdkVersion", spec.androidSdkVersion)
-        client.put("hl", "en")
         client.put("gl", "US")
-        client.put("utcOffsetMinutes", 0)
+        client.put("hl", "en")
+        // Harus konsisten dengan header X-Goog-Visitor-Id di bawah (catatan Meld di
+        // `InnerTube.player`: "Must stay consistent with the X-Goog-Visitor-Id header").
+        visitorData?.takeIf { it.isNotBlank() }?.let { client.put("visitorData", it) }
 
         val context = JSONObject().put("client", client)
         spec.embedUrlValue?.let { embed ->
             context.put("thirdParty", JSONObject().put("embedUrl", embed))
         }
-        context.put(
-            "request",
-            JSONObject()
-                .put("internalExperimentFlags", JSONArray())
-                .put("useSsl", true),
-        )
-        context.put("user", JSONObject().put("lockedSafetyMode", false))
-
-        // `signatureTimestamp` memberi tahu YouTube versi player yang dipakai untuk
-        // menandatangani URL. Tanpa ini, klien yang masih butuh decipher (base.js)
-        // kerap menerima URL yang langsung 403. Klien `needsJsPlayer = false`
-        // (visionos, android_vr) mengirim URL polos sehingga tidak memerlukannya.
-        val playbackContext = JSONObject().put("html5Preference", "HTML5_PREF_WANTS")
-        if (spec.needsJsPlayer && signatureTimestamp != null && signatureTimestamp > 0) {
-            playbackContext.put("signatureTimestamp", signatureTimestamp)
-        }
 
         val payload = JSONObject()
             .put("context", context)
             .put("videoId", videoId)
-            .put("cpn", nonce(16))
             .put("contentCheckOk", true)
             .put("racyCheckOk", true)
-            .put("playbackContext", JSONObject().put("contentPlaybackContext", playbackContext))
+        if (!playlistId.isNullOrBlank()) payload.put("playlistId", playlistId)
+        if (spec.useSignatureTimestamp && signatureTimestamp != null && signatureTimestamp > 0) {
+            payload.put(
+                "playbackContext",
+                JSONObject().put(
+                    "contentPlaybackContext",
+                    JSONObject().put("signatureTimestamp", signatureTimestamp),
+                ),
+            )
+        }
+        if (spec.useWebPoTokens && !poToken.isNullOrBlank()) {
+            payload.put(
+                "serviceIntegrityDimensions",
+                JSONObject().put("poToken", poToken),
+            )
+        }
 
-        val url = if (spec.mobileEndpoint) {
-            "https://youtubei.googleapis.com/youtubei/v1/player?prettyPrint=false" +
-                "&t=${nonce(12)}&id=$videoId"
-        } else {
-            val key = InnertubeConfig.apiKey()
-            "https://${spec.host}/youtubei/v1/player?prettyPrint=false" +
-                (if (key.isBlank()) "" else "&key=$key")
+        // `music.youtube.com` tidak butuh API key di query (Meld tidak mengirimnya);
+        // host www tetap memakai key publik hasil scrape.
+        val key = InnertubeConfig.apiKey()
+        val url = buildString {
+            append("https://").append(host).append("/youtubei/v1/player?prettyPrint=false")
+            if (host != "music.youtube.com" && key.isNotBlank()) append("&key=").append(key)
         }
 
         val builder = Request.Builder()
             .url(url)
             .header("Content-Type", "application/json")
-            .header("User-Agent", spec.userAgent)
-            .header("X-YouTube-Client-Name", spec.clientId)
-            .header("X-Youtube-Client-Version", version)
+            .header("Accept", "application/json")
             .header("Accept-Language", "en-US,en;q=0.9")
-            .header("Origin", spec.origin ?: "https://${spec.host}")
+            .header("Cache-Control", "no-cache")
+            .header("User-Agent", spec.userAgent)
+            .header("X-Goog-Api-Format-Version", "1")
+            // "Bukan typo: header Client-Name memang berisi client id" — Meld.
+            .header("X-YouTube-Client-Name", spec.clientId)
+            .header("X-YouTube-Client-Version", version)
+            .header("Origin", origin)
+            .header("X-Origin", origin)
+            .header("Referer", "$origin/")
         if (!visitorData.isNullOrBlank()) builder.header("X-Goog-Visitor-Id", visitorData)
-        if (spec.mobileEndpoint) {
-            builder.header("X-Goog-Api-Format-Version", "2")
-        }
-        spec.referer?.let { builder.header("Referer", it) }
 
         return builder.post(payload.toString().toRequestBody(JSON)).build()
+    }
+
+    /**
+     * Ulangi request player yang sama ke host cadangan ([PlayerClientSpec.altHost]).
+     * Hanya untuk kegagalan TRANSPORT (4xx/5xx, body bukan JSON) — bukan untuk
+     * `playabilityStatus` yang menolak, karena itu keputusan sisi server yang tidak
+     * berubah hanya dengan pindah host.
+     */
+    fun playerFromSpecAltHost(
+        spec: PlayerClientSpec,
+        videoId: String,
+        visitorData: String?,
+        webVersion: String,
+        signatureTimestamp: Int? = null,
+    ): Request? {
+        val alt = spec.altHost ?: return null
+        if (alt == spec.host) return null
+        return playerRequest(spec, alt, videoId, visitorData, webVersion, signatureTimestamp, null, null)
     }
 
     private fun build(url: String, body: String, client: Client): Request {

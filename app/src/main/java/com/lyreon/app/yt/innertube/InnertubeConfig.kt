@@ -82,22 +82,66 @@ internal object InnertubeConfig {
     }
 
     /**
-     * Buang `visitorData` tersimpan supaya permintaan berikutnya mengambil yang
-     * baru. Dipanggil tangga klien setelah beberapa respons beruntun ditolak
-     * (`UNPLAYABLE`, "The page needs to be reloaded", transport error): pola itu
-     * sering berarti visitorData basi/tidak cocok dengan sesi yang memeriksa.
+     * Buang `visitorData` tersimpan supaya permintaan berikutnya mengambil yang baru.
+     * Dipanggil tangga klien setelah beberapa respons beruntun ditolak (`LOGIN_REQUIRED`
+     * bot gate, `UNPLAYABLE`, transport error): visitorData yang basi — atau yang terikat
+     * akun lain — membuat YouTube menolak klien yang seharusnya lolos.
+     *
+     * Selalu membersihkan (bahkan saat sudah null) supaya `fetched` ikut ter-reset dan
+     * pengambilan berikutnya benar-benar berjalan.
      */
     @Synchronized
     fun invalidateVisitor() {
-        if (visitorData == null) return
         visitorData = null
+        visitorSource = "-"
+        visitorFetchedAtMs = 0L
         fetched.remove("visitor")
         Log.i(TAG, "visitorData dibuang — akan diambil ulang pada permintaan berikut")
     }
 
-    /** Visitor data opsional (dari halaman) — membantu beberapa permintaan player. */
+    /**
+     * Sumber visitorData (untuk diagnostik): `sw.js` / `guide` / `response` / `-`.
+     *
+     * `visitorData` BUKAN opsional. Komentar `InnerTube.ytClient` milik Meld
+     * (FrancescoGrazioso/Meld, September 2026) mencatat pengukurannya:
+     *
+     * > "Sent to EVERY client, including `loginSupported = false` ones. … VISIONOS and
+     * >  ANDROID_VR 1.65.10 — the only clients that currently mint a fully readable stream
+     * >  URL — *require* it. Without one they answer UNPLAYABLE / LOGIN_REQUIRED with zero
+     * >  formats."
+     *
+     * Jadi tanpa visitorData, dua klien terbaik di tangga anonim justru membalas
+     * `LOGIN_REQUIRED: Sign in to confirm you're not a bot` — persis gejala yang dilaporkan
+     * dari IP residensial Indonesia. Karena itu Lyreon mengambilnya dari sumber yang sama
+     * dengan Meld dan menyimpan asal-usulnya supaya laporan diagnostik bisa membedakan
+     * "YouTube memblokir" dari "kita mengirim request tanpa identitas sesi".
+     */
+    @Volatile private var visitorSource: String = "-"
+
+    /** Umur maksimum visitorData sebelum dianggap basi (12 jam). */
+    private const val VISITOR_TTL_MS = 12L * 60L * 60L * 1000L
+
+    @Volatile private var visitorFetchedAtMs = 0L
+
+    /** Visitor data wajib untuk tangga klien — diambil dari YouTube, di-cache per sesi. */
+    @Synchronized
     fun ensureVisitorData(ioClient: okhttp3.OkHttpClient, userAgent: String) {
-        if (visitorData != null || !fetched.add("visitor")) return
+        val existing = visitorData
+        if (existing != null && !isVisitorStale()) return
+        if (existing == null && !fetched.add("visitor")) return
+        // Sumber utama: `music.youtube.com/sw.js_data` — cara yang dipakai Meld.
+        // Tidak butuh cookie, tidak butuh scrape HTML, dan mengembalikan visitorData
+        // milik sesi web YouTube Music (cocok dengan host `music.youtube.com` yang
+        // dipakai tangga klien).
+        val fromSwJs = runCatching { fetchVisitorFromSwJs(ioClient) }.getOrNull()
+        if (fromSwJs != null) {
+            visitorData = fromSwJs
+            visitorSource = "sw.js"
+            visitorFetchedAtMs = System.currentTimeMillis()
+            Log.i(TAG, "visitorData dari sw.js_data: ${fromSwJs.take(12)}… (${fromSwJs.length} char)")
+            return
+        }
+        // Cadangan: endpoint `guide` di www (perilaku Lyreon sebelumnya).
         runCatching {
             val req = Request.Builder()
                 .url("https://www.youtube.com/youtubei/v1/guide?prettyPrint=false")
@@ -109,10 +153,114 @@ internal object InnertubeConfig {
                 .build()
             ioClient.newCall(req).execute().use { resp ->
                 val body = org.json.JSONObject(resp.body?.string().orEmpty())
-                visitorData = body.optString("visitorData").takeIf { it.isNotBlank() }
+                val v = body.optString("visitorData").takeIf { it.isNotBlank() }
+                    ?: body.optJSONObject("responseContext")?.optString("visitorData")
+                        ?.takeIf { it.isNotBlank() }
+                if (v != null) {
+                    visitorData = v
+                    visitorSource = "guide"
+                    visitorFetchedAtMs = System.currentTimeMillis()
+                    Log.i(TAG, "visitorData dari guide: ${v.take(12)}…")
+                }
             }
-        }.onFailure { /* non-fatal */ }
+        }.onFailure { e ->
+            Log.w(TAG, "gagal ambil visitorData: ${e.javaClass.simpleName}: ${e.message}")
+        }
+        if (visitorData == null) {
+            Log.w(
+                TAG,
+                "visitorData TIDAK tersedia — VISIONOS/ANDROID_VR kemungkinan besar membalas " +
+                    "LOGIN_REQUIRED (bot gate). Lihat StreamUrlValidator & PlayerClientLadder.",
+            )
+        }
     }
+
+    private fun isVisitorStale(): Boolean =
+        visitorFetchedAtMs > 0L && System.currentTimeMillis() - visitorFetchedAtMs > VISITOR_TTL_MS
+
+    /**
+     * Ambil visitorData dari `https://music.youtube.com/sw.js_data`.
+     *
+     * Bentuk respons (Meld `YouTube.visitorData()`): diawali `)]}'` lalu JSON array;
+     * visitorData adalah string pertama yang cocok `^Cg[t|s]` di dalam `[0][2]`.
+     * Lyreon memindai jalur itu lebih dulu, lalu melakukan pemindaian terbatas ke
+     * seluruh struktur bila YouTube mengubah susunannya — lebih tahan banting daripada
+     * indeks tetap.
+     */
+    private fun fetchVisitorFromSwJs(ioClient: okhttp3.OkHttpClient): String? {
+        val req = Request.Builder()
+            .url("https://music.youtube.com/sw.js_data")
+            .header("User-Agent", PlayerClientLadder.WEB_UA_FIREFOX)
+            .header("Accept", "application/json")
+            .header("Accept-Language", "en-US,en;q=0.9")
+            .header("Referer", "https://music.youtube.com/")
+            .get()
+            .build()
+        val text = ioClient.newCall(req).execute().use { resp ->
+            if (!resp.isSuccessful) return null
+            resp.body?.string().orEmpty()
+        }
+        if (text.isBlank()) return null
+        // Buang pembungkus anti-JSON `)]}'` (Meld memakai `substring(5)`).
+        val start = text.indexOfFirst { it == '[' || it == '{' }
+        if (start < 0) return null
+        val root = runCatching { org.json.JSONTokener(text.substring(start)).nextValue() }.getOrNull()
+            ?: return null
+        // 1) jalur persis Meld: [0][2]
+        val arr0 = (root as? org.json.JSONArray)?.optJSONArray(0)
+        val arr2 = arr0?.optJSONArray(2)
+        findVisitorIn(arr2)?.let { return it }
+        // 2) pemindaian terbatas (kedalaman ≤ 6) bila susunannya bergeser
+        return findVisitorIn(root, depth = 0)
+    }
+
+    private val VISITOR_REGEX = Regex("^Cg[t|s]")
+
+    private fun findVisitorIn(node: Any?, depth: Int = 0): String? {
+        if (node == null || depth > 6) return null
+        return when (node) {
+            is String -> node.takeIf { VISITOR_REGEX.containsMatchIn(it) && it.length >= 20 }
+            is org.json.JSONArray -> {
+                for (i in 0 until node.length()) {
+                    findVisitorIn(node.opt(i), depth + 1)?.let { return it }
+                }
+                null
+            }
+            is org.json.JSONObject -> {
+                node.optString("visitorData").takeIf { it.isNotBlank() && VISITOR_REGEX.containsMatchIn(it) }
+                    ?: node.optJSONObject("responseContext")?.optString("visitorData")
+                        ?.takeIf { it.isNotBlank() }
+            }
+            else -> null
+        }
+    }
+
+    /**
+     * Panen visitorData dari response InnerTube mana pun (`responseContext.visitorData`).
+     * Dipanggil tangga klien saat kita belum punya identitas sesi — satu respons yang
+     * lolos bisa menyelamatkan seluruh sisa tangga tanpa request tambahan.
+     *
+     * @return true bila visitorData baru saja diadopsi.
+     */
+    fun adoptVisitor(root: org.json.JSONObject?): Boolean {
+        if (root == null || visitorData != null) return false
+        val v = root.optJSONObject("responseContext")?.optString("visitorData")
+            ?.takeIf { it.isNotBlank() } ?: return false
+        visitorData = v
+        visitorSource = "response"
+        visitorFetchedAtMs = System.currentTimeMillis()
+        Log.i(TAG, "visitorData diadopsi dari responseContext: ${v.take(12)}…")
+        return true
+    }
+
+    /** Segarkan visitorData sekarang (dipanggil setelah beberapa respons ditolak beruntun). */
+    fun refreshVisitor(ioClient: okhttp3.OkHttpClient, userAgent: String) {
+        invalidateVisitor()
+        ensureVisitorData(ioClient, userAgent)
+    }
+
+    /** Asal visitorData saat ini — untuk laporan diagnostik. */
+    fun visitorOrigin(): String = if (visitorData == null) "-" else visitorSource
 
     fun apiKey(): String = apiKey
 

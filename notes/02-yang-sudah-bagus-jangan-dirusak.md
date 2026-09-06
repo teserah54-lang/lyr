@@ -109,7 +109,24 @@ tanpa `sig`/`signature`/`sparams`, `pot`/`n` hanya panjang) adalah antarmuka duk
 Bila mengubahnya: pertahankan nama kunci, jangan pernah mencetak materi tanda tangan
 atau identitas pengguna, dan perbarui `docs/streaming-resilience.md` §5.
 
-## 8. Tabel "jangan sentuh tanpa membaca"
+## 8. Lisensi & kepatuhan (sejak 2026-09-06: **GPL-3.0-only**)
+
+- `LICENSE` = teks GPL-3.0 lengkap; **setiap** berkas Kotlin (56 berkas) dimulai dengan
+  header `Copyright (C) 2026 rixz-dev` + `SPDX-License-Identifier: GPL-3.0-only`.
+  Berkas baru wajib memakai header yang sama.
+- Proyek sebelumnya MIT; relisensi diputuskan pemilik proyek supaya kode
+  [Meld](https://github.com/FrancescoGrazioso/Meld) (GPL-3.0) boleh diserap langsung.
+  Aturan menyerap kode + jejak kepatuhan: `notes/06-referensi-meld.md` §1 dan §4.
+- Atribusi pihak ketiga dipajang di README §Lisensi (Meld, Metrolist/InnerTune,
+  MetrolistExtractor/NewPipeExtractor, dependensi Apache-2.0/MPL-2.0).
+  Jangan menghapus tabel itu saat merapikan README.
+- Jangan menurunkan lisensi ke yang lebih permisif (MIT/Apache) dan jangan menambah
+  pembatasan di atas GPL saat mendistribusikan APK.
+- **Utang kepatuhan yang diketahui:** `app/build.gradle.kts` mengecualikan
+  `META-INF/LICENSE*` dari APK padahal sebagian dependensi Apache-2.0 mewajibkan notice
+  → perlu layar "Lisensi sumber terbuka" di Settings atau berkas notice pada rilis.
+
+## 9. Tabel "jangan sentuh tanpa membaca"
 
 | Berkas | Baca dulu |
 |---|---|

@@ -276,19 +276,44 @@ Isu extractor sebaiknya dilaporkan ke upstream [MetrolistExtractor]; isu UI/logi
 
 ## 📜 Lisensi
 
-Proyek ini dirilis di bawah **MIT License** — lihat file [`LICENSE`](LICENSE).
-
-**Atribusi & catatan lisensi pihak ketiga.** Spesifikasi klien InnerTube, urutan tangga
-stream, sumber `visitorData`, dan pendekatan validasi URL Lyreon mengikuti pengukuran
-[FrancescoGrazioso/Meld](https://github.com/FrancescoGrazioso/Meld) (**GPL-3.0**, fork
-Metrolist). Yang diambil adalah *fakta dan metode* (versi klien, User-Agent, nama header,
-hasil pengukuran) dan diimplementasikan ulang dalam kode Lyreon sendiri — bukan salinan
-kode. Karena perbedaan lisensi (MIT vs GPL-3.0), kebijakan penyalinan kode dari Meld
-dicatat di [`notes/06-referensi-meld.md`](notes/06-referensi-meld.md) §1 dan menunggu
-keputusan pemilik proyek sebelum ada porting fitur berikutnya.
-
 ```
-LYREON © rixz-dev — Hear What Words Can't Say.
+LYREON — Hear What Words Can't Say.
+Copyright (C) 2026 rixz-dev
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, version 3 of the License (GPL-3.0-only).
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
 ```
+
+Seluruh teks lisensi: [`LICENSE`](LICENSE). Setiap berkas Kotlin membawa header
+`SPDX-License-Identifier: GPL-3.0-only`.
+
+> **Perubahan lisensi (2026-09-06).** Proyek ini sebelumnya berlisensi MIT. Karena
+> Lyreon meniru spesifikasi klien, urutan tangga stream, dan pendekatan validasi URL
+> dari [FrancescoGrazioso/Meld](https://github.com/FrancescoGrazioso/Meld)
+> (**GPL-3.0**, fork Metrolist ← InnerTune), dan akan terus menyerap fitur dari
+> ekosistem GPL itu, pemilik proyek memutuskan **relisensi ke GPL-3.0-only** agar
+> kompatibel dan patuh. Salinan Lyreon versi MIT yang sudah terdistribusi sebelum
+> tanggal itu tetap MIT; semua versi sejak commit relisensi tunduk pada GPL-3.0-only.
+
+**Atribusi pihak ketiga.**
+
+| Sumber | Lisensi | Yang diambil |
+|---|---|---|
+| [FrancescoGrazioso/Meld](https://github.com/FrancescoGrazioso/Meld) | GPL-3.0 | Spesifikasi klien InnerTube & urutan tangga stream, sumber `visitorData` (`sw.js_data`), pendekatan validasi URL (probe byte terakhir), filter audio auto-dub |
+| [MetrolistGroup/Metrolist](https://github.com/MetrolistGroup/Metrolist) · InnerTune | GPL-3.0 | Silsilah desain klien musik YouTube anonim |
+| [MetrolistGroup/MetrolistExtractor](https://github.com/MetrolistGroup/MetrolistExtractor) · NewPipeExtractor | GPL-3.0 | Dependensi ekstraksi stream (di-pin per commit) |
+| AndroidX / Media3, Jetpack Compose, OkHttp, Room, DataStore, Coil | Apache-2.0 | Dependensi runtime & UI |
+| Mozilla Rhino | MPL-2.0 | Decipher `base.js` (tanda tangan URL) |
+
+Aturan internal saat menyerap kode GPL: pertahankan header hak cipta aslinya, cantumkan
+path berkas sumber sebagai komentar, dan catat di
+[`notes/06-referensi-meld.md`](notes/06-referensi-meld.md) §4. Rinciannya di
+[`notes/02`](notes/02-yang-sudah-bagus-jangan-dirusak.md) §9.
 
 [MetrolistExtractor]: https://github.com/MetrolistGroup/MetrolistExtractor

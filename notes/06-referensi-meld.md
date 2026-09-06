@@ -28,46 +28,48 @@ ktor+okhttp, kotlinx.serialization. **Lyreon berbeda**: media3 1.10.1, okhttp 5.
 
 ---
 
-## 1. ⚠️ Lisensi — baca ini sebelum menyalin apa pun
+## 1. ✅ Lisensi — diputuskan: Lyreon kini GPL-3.0-only (2026-09-06)
 
 | | Lisensi |
 |---|---|
-| Lyreon (`LICENSE`) | **MIT** (Copyright (c) 2026 rixz-dev) |
-| Meld (`LICENSE`) | **GPL-3.0** (diwarisi dari Metrolist/InnerTune) |
+| Lyreon (`LICENSE`, header SPDX per berkas) | **GPL-3.0-only** ← sebelumnya MIT |
+| Meld (`LICENSE`) | **GPL-3.0** (diwarisi dari Metrolist ← InnerTune) |
+| MetrolistExtractor / NewPipeExtractor | GPL-3.0 |
+| Media3, Compose, OkHttp, Room, DataStore, Coil | Apache-2.0 (satu arah kompatibel dengan GPL-3.0) |
+| Rhino | MPL-2.0 (kompatibel sebagai bagian karya yang lebih besar) |
 
-Konsekuensi nyata:
+**Keputusan pemilik proyek:** *"Rilesensi mit ke 3.0"* — Lyreon direlisensi dari MIT ke
+GPL-3.0-only supaya **boleh menyerap kode Meld apa adanya**. Konsekuensi yang diterima:
+setiap turunan/rilis Lyreon tunduk copyleft (kode sumber harus tersedia bagi penerima),
+dan kontribusi berikutnya ikut GPL-3.0-only.
 
-- **Menyalin kode GPL-3.0 ke dalam proyek MIT tidak diperbolehkan** tanpa membuat
-  karya turunan itu tunduk pada GPL-3.0. Untuk sebuah APK, "karya turunan" biasanya
-  dinilai satu kesatuan → praktis seluruh app harus jadi GPL-3.0.
-- **Fakta, angka, dan metode tidak dilindungi hak cipta**: `clientVersion = "1.65.10"`,
-  string User-Agent, nama header (`X-Goog-Visitor-Id`), hasil pengukuran (pratinjau
-  ~1 MiB, gate per versi), dan *ide* "probe byte terakhir sebelum memutar" boleh
-  dipakai dan dikutip dengan atribusi.
-- **Ekspresi** (susunan kode, struktur fungsi, komentar panjang mereka) yang disalin
-  mentah adalah masalah.
+Aturan praktis sejak keputusan ini:
 
-Tiga jalan yang tersedia (butuh **keputusan pemilik proyek**, bukan keputusan
-implementasi):
-
-1. **Tetap MIT + reimplementasi bersih (clean room).** Pakai Meld sebagai sumber
-   *fakta*; tulis kode sendiri; atribusikan di README/NOTICE ("spesifikasi klien dan
-   pendekatan validasi URL mengikuti pengukuran FrancescoGrazioso/Meld, GPL-3.0").
-   Kutipan komentar mereka dibatasi sebagai sitasi dokumentasi, bukan ditempel sebagai
-   KDoc kita. ← kondisi saat ini sebagian besar sudah begini, tetapi ada beberapa
-   kutipan verbatim di KDoc `InnertubeConfig.kt` / `PlayerClientLadder.kt` yang
-   sebaiknya dijadikan sitasi bertanda kutip + tautan (sudah begitu) atau dipindah ke
-   `docs/`.
-2. **Relisensi Lyreon ke GPL-3.0.** Paling bersih bila kita memang berniat terus
-   meniru Meld (lirik KuGou/LrcLib, `SilenceDetectorAudioProcessor`, widget, EQ,
-   dst. semuanya GPL). Konsekuensi: semua kontribusi & rilis tunduk copyleft.
-3. **Campuran per-berkas** (file turunan berlisensi GPL-3.0, sisanya MIT). Secara
-   teknis mungkin, secara hukum rapuh untuk satu APK, dan membingungkan kontributor.
-   **Tidak disarankan.**
-
-Keputusan apa pun yang diambil, tuliskan di `LICENSE`/`NOTICE` + README, dan catat di
-berkas ini. Selama belum diputuskan: **jangan menyalin berkas Meld apa adanya** —
-porting dilakukan sebagai reimplementasi dengan atribusi.
+1. **Menyalin berkas Meld diperbolehkan**, dengan syarat: pertahankan header hak cipta
+   asli mereka, tambahkan baris asal sebagai komentar
+   (`// Diadaptasi dari FrancescoGrazioso/Meld: <path> (GPL-3.0)`), dan sesuaikan
+   package/impor ke `com.lyreon.app`.
+2. **Setiap berkas baru Lyreon** memakai header SPDX yang sama:
+   ```kotlin
+   /*
+    * Copyright (C) 2026 rixz-dev
+    *
+    * SPDX-License-Identifier: GPL-3.0-only
+    */
+   ```
+3. **Catat porting** di §4 berkas ini (tanggal, commit, path sumber, apa yang diubah) —
+   itu jejak kepatuhan kita.
+4. **Jangan mencampur lisensi lain** ke dalam karya (mis. menyalin kode Apache-2.0 yang
+   mengandung paten/klausul tambahan, atau kode berlisensi tidak jelas dari gist/blog).
+   Dependensi Apache-2.0/MPL-2.0 sebagai *library* tetap aman.
+5. **Perhatikan notice dependensi di APK.** `app/build.gradle.kts` mengecualikan
+   `META-INF/LICENSE*` saat packaging (keputusan lama untuk menghindari konflik
+   merge). Karena sebagian dependensi kita Apache-2.0 (yang mewajibkan notice
+   disertakan), siapkan layar "Lisensi sumber terbuka" di Settings atau ikutkan
+   berkas `NOTICE`/`THIRD-PARTY-LICENSES` pada rilis. **Utang kepatuhan — belum
+   dikerjakan.**
+6. Distribusi APK = conveyance: sertakan tautan repositori sumber (sudah ada di README)
+   dan jangan menambah pembatasan lain (DRM/anti-tivoisasi) di atasnya.
 
 ## 2. Cara mengambil sumber Meld dari lingkungan kerja ini
 
@@ -154,6 +156,10 @@ gh api "repos/FrancescoGrazioso/Meld/commits?path=<path>&per_page=5" \
 
 ## 4. Apa yang sudah diporting ke Lyreon (commit `df7531a`, CI hijau)
 
+> Porting ini dikerjakan **sebelum** keputusan relisensi (§1), jadi semuanya berupa
+> reimplementasi dengan atribusi, bukan salinan kode. Ia tetap sah di bawah GPL-3.0-only.
+> Porting **berikutnya** boleh menyalin berkas Meld langsung dengan syarat di §1.
+
 | Dari Meld | Ke Lyreon | Bentuk porting |
 |---|---|---|
 | `YouTubeClient.kt` (VISIONOS 0.1, ANDROID_VR 1.65.10/1.43.32, IPADOS, IOS, TVHTML5, WEB*, WEB_CREATOR) | `yt/innertube/PlayerClientLadder.kt` | **fakta/spesifikasi** disalin; dijaga oleh `tools/ci/meld-client-radar.sh` |
@@ -178,4 +184,5 @@ signature deobfuscation, login/akun, modul Spotify/Last.fm/Kizzy/ShazamKit.
    jebakan yang sudah mereka bayar), baru reimplementasi dengan gaya Lyreon.
 4. Setiap porting baru → tambahkan baris di §4 (tanggal + commit) dan perbarui status
    di `05-peta-fitur-diinginkan.md`.
-5. Sebelum menyalin kode: baca §1 (lisensi).
+5. Sebelum menyalin kode: ikuti syarat §1 (header hak cipta asal + komentar path sumber +
+   header SPDX Lyreon), lalu catat di §4.

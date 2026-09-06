@@ -5,12 +5,9 @@
  */
 package com.lyreon.app.ui.components
 
+import androidx.compose.runtime.getValue
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -31,7 +28,6 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.StrokeCap
@@ -44,11 +40,20 @@ import com.lyreon.app.data.model.LyreonTrack
 import com.lyreon.app.player.PlayerManager
 import com.lyreon.app.ui.theme.LyreonTextSecondary
 import com.lyreon.app.ui.theme.LyreonTextPrimary
-import com.lyreon.app.ui.theme.LyreonLine
 import com.lyreon.app.ui.theme.LyreonElevated
 import com.lyreon.app.ui.theme.LyreonSurface
 import com.lyreon.app.ui.theme.LyreonCrimson
 import com.lyreon.app.ui.theme.LyreonTextMuted
+import androidx.compose.foundation.border
+import com.lyreon.app.ui.theme.LyreonHairline
+import com.lyreon.app.ui.theme.LyreonMotion
+import com.lyreon.app.ui.theme.LyreonRadius
+import com.lyreon.app.ui.theme.lyreonChromeEnter
+import com.lyreon.app.ui.theme.lyreonChromeExit
+import com.lyreon.app.ui.theme.lyreonTween
+
+/** Sudut mini player: sedang, selaras kartu (skala radius tema). */
+private val LyreonMiniShape = RoundedCornerShape(LyreonRadius.md)
 
 @Composable
 fun MiniPlayerBar(
@@ -64,8 +69,8 @@ fun MiniPlayerBar(
 ) {
     AnimatedVisibility(
         visible = visible && track != null,
-        enter = slideInVertically { it } + fadeIn(),
-        exit = slideOutVertically { it } + fadeOut(),
+        enter = lyreonChromeEnter(),
+        exit = lyreonChromeExit(),
         modifier = modifier,
     ) {
         if (track == null) return@AnimatedVisibility
@@ -74,14 +79,19 @@ fun MiniPlayerBar(
         // recompose tiap 500ms, bukan seluruh layar di belakangnya.
         val pos by player.position.collectAsStateWithLifecycle()
         val progress = if (pos.durationMs > 0) pos.positionMs.toFloat() / pos.durationMs else 0f
-        val p by animateFloatAsState(targetValue = progress.coerceIn(0f, 1f), label = "mini_prog")
+        val p by animateFloatAsState(
+            targetValue = progress.coerceIn(0f, 1f),
+            animationSpec = lyreonTween(LyreonMotion.deliberate),
+            label = "mini_prog",
+        )
 
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 8.dp, vertical = 4.dp)
-                .clip(RoundedCornerShape(14.dp))
+                .clip(LyreonMiniShape)
                 .background(LyreonElevated)
+                .border(1.dp, LyreonHairline, LyreonMiniShape)
                 .clickable(onClick = onOpen),
         ) {
             if (isBuffering) {

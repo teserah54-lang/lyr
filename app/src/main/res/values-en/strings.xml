@@ -147,6 +147,9 @@
     <string name="theme_dark">DARK</string>
     <string name="theme_light">LIGHT</string>
     <string name="theme_system">SYSTEM</string>
+    <string name="theme_black">BLACK</string>
+    <string name="dynamic_title">Dynamic colors (Material You)</string>
+    <string name="dynamic_body">Take the palette from your wallpaper (Android 12+). A custom accent color is ignored while this is on.</string>
     <string name="quality_label">Stream quality (audio-only)</string>
     <string name="quality_body">Applies to streaming &amp; downloads. Best ≈ 160+ kbps Opus/M4A.</string>
     <string name="quality_high">BEST</string>

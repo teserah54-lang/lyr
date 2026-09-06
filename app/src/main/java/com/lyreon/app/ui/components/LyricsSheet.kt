@@ -5,6 +5,7 @@
  */
 package com.lyreon.app.ui.components
 
+import androidx.compose.runtime.getValue
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -20,7 +21,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -31,8 +31,6 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -51,6 +49,8 @@ import com.lyreon.app.ui.theme.LyreonTextMuted
 import com.lyreon.app.ui.theme.LyreonTextPrimary
 import com.lyreon.app.ui.theme.LyreonTextSecondary
 import com.lyreon.app.ui.vm.LocalLyreon
+import com.lyreon.app.ui.theme.LyreonRadius
+import com.lyreon.app.ui.theme.LyreonScrimSheet
 
 internal sealed interface LyricsUi {
     data object Loading : LyricsUi
@@ -130,8 +130,9 @@ fun LyricsSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         containerColor = LyreonElevated,
+        scrimColor = LyreonScrimSheet,
         contentColor = LyreonTextPrimary,
-        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+        shape = LyreonRadius.top(),
         dragHandle = {
             Spacer(
                 Modifier

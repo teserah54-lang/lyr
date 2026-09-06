@@ -108,29 +108,42 @@ Aturan keras:
 
 ## 7. Implementasi bertahap (satu fase = satu commit = satu CI hijau)
 
-**Fase 1 — Fondasi token (risiko rendah).**
-Tambah `ui/theme/Shapes.kt`, token baru di `LyreonPalette`, `ThemeMode.BLACK`,
-migrasi `BrutalFrame`/`RoundedCornerShape` tersebar ke token.
-*Selesai bila:* tidak ada `RoundedCornerShape(16.dp)` hardcoded di `ui/`, CI hijau,
-tampilan nyaris identik (refactor, bukan redesign).
+**Fase 1 — Fondasi token — ✅ SELESAI (gelombang tema 1).**
+Ditambahkan `ui/theme/Shape.kt` (`LyreonRadius` xs/sm/md/lg/xl/pill + `LyreonShapes`
+yang diikat ke `MaterialTheme.shapes` + `LyreonChromeShape`), token baru di
+`LyreonPalette` (`surfaceTranslucent`, `hairline`, `accentSoft`, `scrimSheet`),
+`ThemeMode.BLACK` + `lyreonBlackPalette()` (#000 murni), dan `BrutalFrame` kini memakai
+token radius + `hairline` (bukan `RoundedCornerShape(16.dp)` + border tebal).
+*Sisa:* migrasi `RoundedCornerShape(...)` hardcoded yang masih tersebar di layar
+(cek: `grep -rn "RoundedCornerShape(" app/src/main/java/com/lyreon/app/ui/screens`).
 
-**Fase 2 — Tema dinamis.**
-`MATERIAL_YOU` + pemetaan ke token, UI pemilih tema di Settings (referensi
-`ThemeScreen.kt` Meld), fallback API < 31.
-*Selesai bila:* ganti wallpaper perangkat → warna app ikut; mode BLACK hitam murni;
-kontras teks tetap ≥ 4.5:1 di ketiga mode.
+**Fase 2 — Tema dinamis — ✅ SELESAI (gelombang tema 1).**
+`dynamicColor` di `LyreonSettings` + `dynamicDarkColorScheme`/`dynamicLightColorScheme`
+(di-guard `Build.VERSION_CODES.S`, otomatis diabaikan di API < 31), pemetaan balik ke
+token lewat `lyreonPaletteFromScheme()`, sakelar Material You di Settings (hanya tampil
+di Android 12+), dan mode HITAM + Material You (`ColorScheme.withBlackBase()` → latar
+#000, aksen tetap dari wallpaper). `surfaceTint` dinetralkan agar permukaan tidak
+kemerahan.
+*Sisa uji di perangkat:* ganti wallpaper → warna app ikut; kontras teks ≥ 4.5:1 di
+keempat mode (SISTEM/GELAP/HITAM/KERTAS).
 
-**Fase 3 — Transparansi & blur terbatas.**
-`surfaceTranslucent` untuk MiniPlayer + bottom sheet + Now Playing; blur maksimal satu
-lapis; jalur non-blur saat `reduceMotion`.
-*Selesai bila:* `dumpsys gfxinfo … framestats` tidak memburuk saat scroll Home/Library;
-teks tetap terbaca di atas artwork terang.
+**Fase 3 — Transparansi & blur terbatas — 🟡 SEBAGIAN.**
+Sudah: chrome memakai token baru (pulau navigasi = `surfaceTranslucent` + `hairline`,
+mini player = radius `md` + `hairline`, lembar bawah = `scrimSheet` + `LyreonRadius.top()`).
+Belum: blur satu lapis di chrome — **ditunda sengaja**, karena konten tidak digambar di
+bawah bottom bar (Scaffold memberi padding), jadi blur tidak akan terlihat apa pun selain
+memakan GPU. Kerjakan hanya bila chrome dibuat benar-benar mengambang di atas konten
+(`Modifier.consumeWindowInsets` / background transparan pada content Scaffold), lalu
+ukur `dumpsys gfxinfo com.lyreon.app framestats` sebelum/sesudah.
 
-**Fase 4 — Motion iOS-like.**
-Spring untuk navigasi/sheet/tombol; wire `LocalReduceMotion`; transisi baris lirik;
-shared element artwork bila stabil.
-*Selesai bila:* semua animasi ≤ 350 ms, `reduceMotion = true` mematikan semuanya, dan
-tidak ada jank terukur saat berpindah Home → Now Playing.
+**Fase 4 — Motion iOS-like — 🟡 SEBAGIAN.**
+Sudah: `ui/theme/Motion.kt` (`LocalReduceMotion`, `lyreonSpring`, `lyreonTween`,
+`lyreonFade`, `lyreonChromeEnter/Exit`, konstanta durasi 90/180/260/350 ms dan damping
+0.85/0.9) + semua animasi yang ada dimigrasikan: `MiniPlayerBar`, `IntroOverlay`
+(dipersingkat jadi 550 ms saat reduce motion), `GenreReelSlider`, `EventCountdown`
+(infinite pulse dimatikan), `LyreonPlayButton`, `Crossfade` lirik di `NowPlayingScreen`.
+Belum: transisi antar-layar (masih bawaan `NavController`), transisi baris lirik aktif
+(gelombang lirik), dan shared element artwork.
 
 ## 8. Larangan selama pengerjaan tema
 

@@ -5,6 +5,8 @@
  */
 package com.lyreon.app
 
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.getValue
 import android.Manifest
 import android.content.Context
 import android.content.Intent
@@ -26,7 +28,6 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LibraryMusic
@@ -53,11 +54,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -102,7 +101,11 @@ import com.lyreon.app.ui.theme.LyreonElevated
 import com.lyreon.app.ui.theme.LyreonBackground
 import com.lyreon.app.ui.theme.LyreonTextMuted
 import com.lyreon.app.ui.theme.LyreonTheme
-import com.lyreon.app.ui.theme.ThemeMode
+import com.lyreon.app.ui.theme.LyreonAccentSoft
+import com.lyreon.app.ui.theme.LyreonChromeShape
+import com.lyreon.app.ui.theme.LyreonHairline
+import com.lyreon.app.ui.theme.LyreonSurfaceTranslucent
+import androidx.compose.foundation.border
 import com.lyreon.app.ui.vm.DownloadsViewModel
 import com.lyreon.app.ui.vm.HomeViewModel
 import com.lyreon.app.ui.vm.LibraryViewModel
@@ -137,6 +140,8 @@ class MainActivity : ComponentActivity() {
                     themeMode = settings.themeMode,
                     accentArgb = settings.accentArgb,
                     fontKey = settings.fontKey,
+                    dynamicColor = settings.dynamicColor,
+                    reduceMotion = settings.reduceMotion,
                 ) {
                     Box(Modifier.fillMaxSize()) {
                         LyreonRoot(
@@ -286,14 +291,14 @@ fun LyreonRoot(
     val navColors = NavigationBarItemDefaults.colors(
         selectedIconColor = com.lyreon.app.ui.theme.LyreonCrimson,
         selectedTextColor = com.lyreon.app.ui.theme.LyreonCrimson,
-        indicatorColor = com.lyreon.app.ui.theme.LyreonCrimson.copy(alpha = 0.14f),
+        indicatorColor = LyreonAccentSoft,
         unselectedIconColor = LyreonTextMuted,
         unselectedTextColor = LyreonTextMuted,
     )
     val railColors = NavigationRailItemDefaults.colors(
         selectedIconColor = com.lyreon.app.ui.theme.LyreonCrimson,
         selectedTextColor = com.lyreon.app.ui.theme.LyreonCrimson,
-        indicatorColor = com.lyreon.app.ui.theme.LyreonCrimson.copy(alpha = 0.14f),
+        indicatorColor = LyreonAccentSoft,
         unselectedIconColor = LyreonTextMuted,
         unselectedTextColor = LyreonTextMuted,
     )
@@ -368,8 +373,9 @@ fun LyreonRoot(
                     Box(
                         modifier = Modifier
                             .padding(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 10.dp)
-                            .clip(RoundedCornerShape(28.dp))
-                            .background(LyreonElevated.copy(alpha = 0.96f)),
+                            .clip(LyreonChromeShape)
+                            .background(LyreonSurfaceTranslucent)
+                            .border(1.dp, LyreonHairline, LyreonChromeShape),
                     ) {
                         NavigationBar(
                             containerColor = androidx.compose.ui.graphics.Color.Transparent,

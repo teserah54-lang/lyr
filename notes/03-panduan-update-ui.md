@@ -126,12 +126,18 @@ Coil 3 untuk artwork.
 **Motion**
 - [ ] Animasi masuk/keluar halaman: `AnimatedContent`/`Crossfade` dengan
       **spring** (lihat `04` §motion), durasi efektif 200–350 ms.
-- [ ] Setelan `reduceMotion` **saat ini belum dihormati di kode** (hanya disimpan di
-      `LyreonSettings` dan ditampilkan di `SettingsScreen`). Setiap animasi baru wajib
-      memeriksa `settings.reduceMotion` → ganti ke fade 120 ms atau tanpa animasi.
-      Lebih baik lagi: sekalian wire sekali di `MainActivity` sebagai
-      `CompositionLocalProvider(LocalReduceMotion provides …)` supaya semua layar
-      ikut tanpa grep per animasi.
+- [x] Setelan `reduceMotion` **sudah dihormati** (sejak gelombang tema 1):
+      `LyreonTheme` menyediakan `LocalReduceMotion` — gabungan preferensi pengguna
+      **dan** status animator sistem (`ValueAnimator.areAnimatorsEnabled()`, jadi
+      "animation scale = 0" di Opsi Developer ikut dihitung).
+- [ ] **Aturan wajib untuk animasi baru:** jangan panggil `tween(...)` / `spring(...)`
+      mentah. Pakai helper di `ui/theme/Motion.kt`: `lyreonTween()`, `lyreonSpring()`,
+      `lyreonFade()`, `lyreonChromeEnter()/Exit()` — semuanya runtuh jadi ~instan saat
+      reduce motion. Baca statusnya lewat `reduceMotionEnabled` bila perlu cabang
+      struktural (contoh: `EventCountdownChip` mematikan `rememberInfiniteTransition`
+      sehingga tidak ada animasi berjalan terus di latar).
+- [ ] Spec yang dipakai di dalam `LaunchedEffect` harus **diambil di luar** effect
+      (helper tema bersifat `@Composable`) — lihat `LyreonPlayButton.morphSpec`.
 
 **Cara mengukur (jangan menebak)**
 ```bash
@@ -163,7 +169,8 @@ sesudah. Kalau tidak terukur, jangan diklaim "lebih smooth".
 2. [ ] Semua string baru masuk **6** berkas `strings.xml`; `python3` parse XML sukses.
 3. [ ] Mode DARK, LIGHT (dan BLACK bila sudah ada) terlihat benar; aksen kustom
        (`accentArgb`) tidak menghasilkan teks tak terbaca.
-4. [ ] `reduceMotion = true` → tidak ada animasi besar.
+4. [ ] `reduceMotion = true` → tidak ada animasi besar (helper `Motion.kt` menangani;
+       periksa juga animator sistem dimatikan → sama efeknya).
 5. [ ] Scroll list panjang (≥ 200 item) tetap mulus di perangkat nyata; tidak ada
        blur di dalam item.
 6. [ ] Navigasi: back dari layar baru tidak merusak state pemutar; MiniPlayer tetap

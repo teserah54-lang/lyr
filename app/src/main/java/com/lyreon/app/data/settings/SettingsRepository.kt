@@ -34,6 +34,8 @@ data class LyreonSettings(
     val accentArgb: Int = -1,
     /** Kunci jenis huruf: default / serif / mono / cursive. */
     val fontKey: String = "default",
+    /** Material You: ambil palet dari wallpaper (Android 12+). */
+    val dynamicColor: Boolean = false,
 )
 
 class SettingsRepository(private val context: Context) {
@@ -46,6 +48,7 @@ class SettingsRepository(private val context: Context) {
         val DISPLAY_NAME = stringPreferencesKey("display_name")
         val ACCENT_ARGB = intPreferencesKey("accent_argb")
         val FONT_KEY = stringPreferencesKey("font_key")
+        val DYNAMIC_COLOR = booleanPreferencesKey("dynamic_color")
     }
 
     val settings: Flow<LyreonSettings> = context.lyreonDataStore.data.map { prefs ->
@@ -60,6 +63,7 @@ class SettingsRepository(private val context: Context) {
             displayName = prefs[Keys.DISPLAY_NAME].orEmpty(),
             accentArgb = prefs[Keys.ACCENT_ARGB] ?: -1,
             fontKey = prefs[Keys.FONT_KEY] ?: "default",
+            dynamicColor = prefs[Keys.DYNAMIC_COLOR] ?: false,
         )
     }
 
@@ -89,5 +93,9 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setFontKey(value: String) {
         context.lyreonDataStore.edit { it[Keys.FONT_KEY] = value }
+    }
+
+    suspend fun setDynamicColor(value: Boolean) {
+        context.lyreonDataStore.edit { it[Keys.DYNAMIC_COLOR] = value }
     }
 }

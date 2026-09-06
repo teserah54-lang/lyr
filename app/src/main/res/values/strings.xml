@@ -158,6 +158,9 @@
     <string name="theme_dark">GELAP</string>
     <string name="theme_light">KERTAS</string>
     <string name="theme_system">SISTEM</string>
+    <string name="theme_black">HITAM</string>
+    <string name="dynamic_title">Warna dinamis (Material You)</string>
+    <string name="dynamic_body">Ambil palet dari wallpaper (Android 12+). Warna aksen kustom diabaikan saat opsi ini aktif.</string>
     <string name="quality_label">Kualitas stream (audio-only)</string>
     <string name="quality_body">Berlaku untuk streaming &amp; unduhan. Terbaik ≈ 160+ kbps Opus/M4A.</string>
     <string name="quality_high">TERBAIK</string>

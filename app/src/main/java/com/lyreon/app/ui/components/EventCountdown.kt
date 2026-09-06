@@ -5,6 +5,7 @@
  */
 package com.lyreon.app.ui.components
 
+import androidx.compose.runtime.getValue
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -20,7 +21,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -30,8 +30,8 @@ import androidx.compose.ui.unit.dp
 import com.lyreon.app.core.LocaleHelper
 import com.lyreon.app.ui.theme.LyreonCrimson
 import com.lyreon.app.ui.theme.LyreonElevated
-import com.lyreon.app.ui.theme.LyreonTextPrimary
 import com.lyreon.app.ui.theme.LyreonTextSecondary
+import com.lyreon.app.ui.theme.reduceMotionEnabled
 import kotlinx.coroutines.delay
 import java.util.Calendar
 
@@ -200,13 +200,20 @@ fun EventCountdownChip(modifier: Modifier = Modifier) {
     }
     val (event, remaining) = state ?: return
 
-    val pulse = rememberInfiniteTransition(label = "pulse")
-    val alpha by pulse.animateFloat(
-        initialValue = 1f,
-        targetValue = 0.35f,
-        animationSpec = infiniteRepeatable(tween(900), RepeatMode.Reverse),
-        label = "alpha",
-    )
+    // Denyut hanya bila gerakan diizinkan — reduce motion menghemat baterai
+    // karena tidak ada infinite transition yang berjalan terus.
+    val alpha: Float = if (reduceMotionEnabled) {
+        1f
+    } else {
+        val pulse = rememberInfiniteTransition(label = "pulse")
+        val pulsed by pulse.animateFloat(
+            initialValue = 1f,
+            targetValue = 0.35f,
+            animationSpec = infiniteRepeatable(tween(900), RepeatMode.Reverse),
+            label = "alpha",
+        )
+        pulsed
+    }
 
     // Satuan hari/bulan mengikuti bahasa aplikasi
     val (dayUnit, monthUnit) = when {

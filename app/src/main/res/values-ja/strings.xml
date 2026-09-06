@@ -147,6 +147,9 @@
     <string name="theme_dark">ダーク</string>
     <string name="theme_light">ライト</string>
     <string name="theme_system">システム</string>
+    <string name="theme_black">ブラック</string>
+    <string name="dynamic_title">動的な色（Material You）</string>
+    <string name="dynamic_body">壁紙からパレットを取得します（Android 12以降）。オンにしている間、カスタムのアクセントカラーは無視されます。</string>
     <string name="quality_label">ストリーム音質（音声のみ）</string>
     <string name="quality_body">ストリーミングとダウンロードに適用。最高 ≈ 160+ kbps Opus/M4A。</string>
     <string name="quality_high">最高</string>

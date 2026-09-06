@@ -147,6 +147,9 @@
     <string name="theme_dark">डार्क</string>
     <string name="theme_light">लाइट</string>
     <string name="theme_system">सिस्टम</string>
+    <string name="theme_black">काला</string>
+    <string name="dynamic_title">डायनामिक रंग (Material You)</string>
+    <string name="dynamic_body">अपने वॉलपेपर से रंग लें (Android 12+)। चालू रहने पर कस्टम एक्सेंट रंग अनदेखा कर दिया जाता है।</string>
     <string name="quality_label">स्ट्रीम गुणवत्ता (सिर्फ़ ऑडियो)</string>
     <string name="quality_body">स्ट्रीमिंग और डाउनलोड पर लागू। सर्वश्रेष्ठ ≈ 160+ kbps Opus/M4A।</string>
     <string name="quality_high">सर्वश्रेष्ठ</string>

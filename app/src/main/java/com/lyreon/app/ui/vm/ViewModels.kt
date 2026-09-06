@@ -860,6 +860,10 @@ class SettingsViewModel(private val locator: ServiceLocator) : ViewModel() {
         viewModelScope.launch { locator.settings.setFontKey(key) }
     }
 
+    fun setDynamicColor(v: Boolean) {
+        viewModelScope.launch { locator.settings.setDynamicColor(v) }
+    }
+
     fun clearHistory() {
         viewModelScope.launch { locator.library.clearHistory() }
     }

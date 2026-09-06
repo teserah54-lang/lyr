@@ -5,8 +5,9 @@
  */
 package com.lyreon.app.ui.screens
 
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.getValue
 import androidx.compose.animation.Crossfade
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -56,11 +57,9 @@ import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -94,6 +93,10 @@ import com.lyreon.app.ui.theme.LyreonBackground
 import com.lyreon.app.ui.theme.LyreonCrimson
 import com.lyreon.app.ui.theme.LyreonRose
 import com.lyreon.app.ui.theme.LyreonTextMuted
+import com.lyreon.app.ui.theme.LyreonMotion
+import com.lyreon.app.ui.theme.lyreonTween
+import com.lyreon.app.ui.theme.LyreonRadius
+import com.lyreon.app.ui.theme.LyreonScrimSheet
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -486,8 +489,9 @@ fun NowPlayingScreen(
             onDismissRequest = { showQueue = false },
             sheetState = sheetState,
             containerColor = LyreonElevated,
+            scrimColor = LyreonScrimSheet,
             contentColor = LyreonTextPrimary,
-            shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+            shape = LyreonRadius.top(),
             dragHandle = {
                 Spacer(
                     Modifier
@@ -646,7 +650,7 @@ private fun ArtworkOrLyrics(
             .background(LyreonSurface)
             .clickable(onClick = onToggleLyrics),
     ) {
-        Crossfade(targetState = showLyrics, animationSpec = tween(450), label = "art_lyrics") { lyrics ->
+        Crossfade(targetState = showLyrics, animationSpec = lyreonTween(LyreonMotion.deliberate), label = "art_lyrics") { lyrics ->
             if (!lyrics) {
                 Box(Modifier.fillMaxSize()) {
                     if (track.thumbnailUrl.isNotBlank()) {

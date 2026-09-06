@@ -5,8 +5,11 @@
  */
 package com.lyreon.app.ui.screens
 
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.getValue
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -29,11 +32,9 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -44,6 +45,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lyreon.app.R
 import com.lyreon.app.core.LocaleHelper
 import com.lyreon.app.data.settings.AudioQuality
+import com.lyreon.app.ui.theme.LyreonAccentSoft
+import com.lyreon.app.ui.theme.LyreonHairline
+import com.lyreon.app.ui.theme.LyreonRadius
 import com.lyreon.app.ui.theme.LyreonTextSecondary
 import com.lyreon.app.ui.theme.LyreonTextPrimary
 import com.lyreon.app.ui.theme.LyreonLine
@@ -95,15 +99,27 @@ fun SettingsScreen(
             SettingSection(stringResource(R.string.sec_appearance)) {
                 Text(stringResource(R.string.theme_label), style = MaterialTheme.typography.titleSmall, color = LyreonTextPrimary)
                 Spacer(Modifier.height(10.dp))
-                SegmentedRow(
+                SegmentedGrid(
                     options = listOf(
-                        ThemeMode.DARK to stringResource(R.string.theme_dark),
-                        ThemeMode.LIGHT to stringResource(R.string.theme_light),
                         ThemeMode.SYSTEM to stringResource(R.string.theme_system),
+                        ThemeMode.DARK to stringResource(R.string.theme_dark),
+                        ThemeMode.BLACK to stringResource(R.string.theme_black),
+                        ThemeMode.LIGHT to stringResource(R.string.theme_light),
                     ),
                     selected = settings.themeMode,
                     onSelect = vm::setTheme,
                 )
+                // Material You hanya ada di Android 12+; di bawah itu barisnya
+                // disembunyikan supaya tidak menawarkan sesuatu yang tak jalan.
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    Spacer(Modifier.height(14.dp))
+                    ToggleRow(
+                        title = stringResource(R.string.dynamic_title),
+                        body = stringResource(R.string.dynamic_body),
+                        checked = settings.dynamicColor,
+                        onChange = vm::setDynamicColor,
+                    )
+                }
                 Spacer(Modifier.height(18.dp))
                 Text(stringResource(R.string.accent_label), style = MaterialTheme.typography.titleSmall, color = LyreonTextPrimary)
                 Spacer(Modifier.height(10.dp))
@@ -586,24 +602,65 @@ private fun <T> SegmentedRow(
 ) {
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         options.forEach { (value, label) ->
-            val active = value == selected
-            Box(
-                modifier = Modifier
-                    .border(1.dp, if (active) LyreonCrimson else LyreonLine)
-                    .background(
-                        if (active) LyreonCrimson.copy(alpha = 0.18f)
-                        else LyreonSurface.copy(alpha = 0.25f),
-                    )
-                    .clickable { onSelect(value) }
-                    .padding(horizontal = 16.dp, vertical = 10.dp),
-            ) {
-                Text(
-                    label,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = if (active) LyreonTextPrimary else LyreonTextSecondary,
-                )
+            SegmentChip(label = label, active = value == selected, onClick = { onSelect(value) })
+        }
+    }
+}
+
+/**
+ * Varian [SegmentedRow] yang membungkus ke baris baru (2 kolom) — dipakai untuk
+ * pilihan tema yang kini empat butir: SISTEM · GELAP · HITAM · KERTAS.
+ */
+@Composable
+private fun <T> SegmentedGrid(
+    options: List<Pair<T, String>>,
+    selected: T,
+    onSelect: (T) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        options.chunked(2).forEach { rowItems ->
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                rowItems.forEach { (value, label) ->
+                    Box(Modifier.weight(1f)) {
+                        SegmentChip(
+                            label = label,
+                            active = value == selected,
+                            onClick = { onSelect(value) },
+                            fill = true,
+                        )
+                    }
+                }
+                // Pengisi agar butir ganjil tetap selebar setengah baris.
+                if (rowItems.size == 1) Spacer(Modifier.weight(1f))
             }
         }
+    }
+}
+
+/** Satu butir pilihan: sudut membulat sedang, garis rambut, latar aksen redup. */
+@Composable
+private fun SegmentChip(
+    label: String,
+    active: Boolean,
+    onClick: () -> Unit,
+    fill: Boolean = false,
+) {
+    val shape = RoundedCornerShape(LyreonRadius.sm)
+    Box(
+        modifier = Modifier
+            .then(if (fill) Modifier.fillMaxWidth() else Modifier)
+            .clip(shape)
+            .border(1.dp, if (active) LyreonCrimson else LyreonHairline, shape)
+            .background(if (active) LyreonAccentSoft else LyreonSurface.copy(alpha = 0.25f))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        contentAlignment = if (fill) Alignment.Center else Alignment.CenterStart,
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelMedium,
+            color = if (active) LyreonTextPrimary else LyreonTextSecondary,
+        )
     }
 }
 
@@ -614,10 +671,12 @@ private fun ToggleRow(
     checked: Boolean,
     onChange: (Boolean) -> Unit,
 ) {
+    val shape = RoundedCornerShape(LyreonRadius.sm)
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .border(1.dp, LyreonLine)
+            .clip(shape)
+            .border(1.dp, LyreonHairline, shape)
             .background(LyreonSurface.copy(alpha = 0.3f))
             .padding(14.dp),
         verticalAlignment = Alignment.CenterVertically,

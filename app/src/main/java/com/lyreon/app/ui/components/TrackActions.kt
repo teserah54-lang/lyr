@@ -5,6 +5,8 @@
  */
 package com.lyreon.app.ui.components
 
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.getValue
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -37,10 +39,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -57,6 +57,8 @@ import com.lyreon.app.ui.theme.LyreonElevated
 import com.lyreon.app.ui.theme.LyreonSurface
 import com.lyreon.app.ui.theme.LyreonCrimson
 import com.lyreon.app.ui.theme.LyreonTextMuted
+import com.lyreon.app.ui.theme.LyreonRadius
+import com.lyreon.app.ui.theme.LyreonScrimSheet
 
 data class TrackActions(
     val onPlayNext: () -> Unit,
@@ -82,8 +84,9 @@ fun TrackActionsSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
         containerColor = LyreonElevated,
+        scrimColor = LyreonScrimSheet,
         contentColor = LyreonTextPrimary,
-        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+        shape = LyreonRadius.top(),
         dragHandle = {
             Spacer(
                 Modifier

@@ -147,6 +147,9 @@
     <string name="theme_dark">深色</string>
     <string name="theme_light">浅色</string>
     <string name="theme_system">跟随系统</string>
+    <string name="theme_black">纯黑</string>
+    <string name="dynamic_title">动态取色（Material You）</string>
+    <string name="dynamic_body">从壁纸获取配色（Android 12+）。开启时将忽略自定义强调色。</string>
     <string name="quality_label">流音质（仅音频）</string>
     <string name="quality_body">适用于流播放和下载。最佳 ≈ 160+ kbps Opus/M4A。</string>
     <string name="quality_high">最佳</string>

@@ -147,6 +147,9 @@
     <string name="theme_dark">GELAP</string>
     <string name="theme_light">CERAH</string>
     <string name="theme_system">SISTEM</string>
+    <string name="theme_black">HITAM</string>
+    <string name="dynamic_title">Warna dinamik (Material You)</string>
+    <string name="dynamic_body">Ambil palet daripada kertas dinding anda (Android 12+). Warna aksen tersuai diabaikan semasa pilihan ini aktif.</string>
     <string name="quality_label">Kualiti strim (audio sahaja)</string>
     <string name="quality_body">Digunakan untuk strim &amp; muat turun. Terbaik ≈ 160+ kbps Opus/M4A.</string>
     <string name="quality_high">TERBAIK</string>

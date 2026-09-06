@@ -21,9 +21,18 @@ android {
 
     val keystoreFile = file("${rootProject.projectDir}/debug.keystore")
 
+    // `debug.keystore` TIDAK ikut ter-commit (dan tidak dibuat runner CI). Tanpa
+    // fallback di bawah, signingConfig "release" tidak punya `storeFile` sama
+    // sekali → `packageRelease` mati dengan
+    //   NullPointerException: SigningConfig "release" is missing required property "storeFile"
+    // sementara build debug tetap lolos (AGP membuat ~/.android/debug.keystore
+    // sendiri untuk config debug bawaan). Inilah penyebab CI merah di langkah
+    // "Build Release APK" — bukan masalah kode aplikasi.
+    val hasKeystore = keystoreFile.exists()
+
     signingConfigs {
         getByName("debug") {
-            if (keystoreFile.exists()) {
+            if (hasKeystore) {
                 storeFile = keystoreFile
                 storePassword = "android"
                 keyAlias = "androiddebugkey"
@@ -31,7 +40,7 @@ android {
             }
         }
         create("release") {
-            if (keystoreFile.exists()) {
+            if (hasKeystore) {
                 storeFile = keystoreFile
                 storePassword = "android"
                 keyAlias = "androiddebugkey"
@@ -47,7 +56,11 @@ android {
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            signingConfig = signingConfigs.getByName("release")
+            // Ada keystore → pakai config release. Tidak ada → numpang config debug
+            // supaya APK release tetap ter-bentuk (bertanda tangan debug, cukup untuk
+            // uji coba; rilis publik tetap harus menandatangani dengan keystore sendiri).
+            signingConfig =
+                if (hasKeystore) signingConfigs.getByName("release") else signingConfigs.getByName("debug")
         }
     }
 

@@ -40,6 +40,8 @@ LYREON memutar **hanya audio** dari YouTube Music (Opus/WebM atau AAC/M4A) sehin
 | 14 | **Sleep timer** | 5–90 menit + indikator sisa waktu |
 | 15 | **Shuffle & Repeat + kualitas audio** | Terbaik / Seimbang / Hemat data |
 | 16 | **Restore sesi + deep link** | Antrean pulih saat app dibuka; terima link `youtu.be` / `youtube.com/watch` |
+| 17 | **Akun YouTube (opsional)** | Tempel/impor cookie akun → membuka jalur extractor ber-login (Safari/HLS) saat YouTube memaksa SABR untuk permintaan anonim |
+| 18 | **Kesehatan stream + diagnostik klien** | *Circuit breaker* berbasis bukti pemutaran (bukan `STATE_READY`), pesan gagal yang actionable, dan "Tes koneksi" yang melaporkan klien InnerTube mana yang masih memberi URL |
 
 *Bonus:* tema Gelap/Kertas/Sistem, reduce‑motion, retry otomatis saat URL kedaluwarsa, snackbar error.
 
@@ -50,7 +52,7 @@ LYREON memutar **hanya audio** dari YouTube Music (Opus/WebM atau AAC/M4A) sehin
 | Bahasa | **Kotlin 2.4** (K2), JVM target 17 |
 | UI | **Jetpack Compose** (BOM `2026.01.01`), Material 3 |
 | Player | **AndroidX Media3 1.10.1** — `ExoPlayer` + `MediaSession` (background) |
-| Extractor | **MetrolistExtractor** (`com.github.MetrolistGroup:MetrolistExtractor`) — fork NewPipeExtractor, plus **fallback InnerTube** langsung ke Google (`youtubei/v1`) bila extractor utama gagal |
+| Extractor | **MetrolistExtractor** (`com.github.MetrolistGroup:MetrolistExtractor`, di-pin per commit) — fork NewPipeExtractor, plus **fallback InnerTube** langsung ke Google (`youtubei/v1`) lewat *tangga klien* (`PlayerClientLadder`) bila extractor utama gagal. Identitas akun dipasang via `ServiceList.YouTube.setTokens()` |
 | Jaringan | **OkHttp 5.1**, **Coil 3** (gambar), `StreamingDataSource` kustom untuk resolve stream lazily |
 | Persistence | **Room 2.8** (SQLite), **DataStore** (preferensi/settings + profil selera) |
 | Navigasi | **Navigation Compose** |
@@ -73,6 +75,11 @@ LYREON memutar **hanya audio** dari YouTube Music (Opus/WebM atau AAC/M4A) sehin
 │                 ├─ LibraryRepository (Room: playlist, riwayat, liked, unduhan)
 │                 └─ LocalMusicRepository (MediaStore + SAF, thumbnail album art)
 │
+├─ Streaming ────┬─ YouTubeAccount (cookie akun → ServiceList.YouTube.setTokens)
+│  (ketahanan)    ├─ PlayerClientLadder (urutan klien InnerTube + deteksi SABR-only)
+│                 ├─ InnertubeFallback (tangga klien → URL audio, StreamProbe)
+│                 └─ PlayerManager.StreamHealth (circuit breaker berbasis kemajuan)
+│
 └─ Data ────────── Room DB · DataStore · model (LyreonTrack, SearchFilter, …)
 ```
 
@@ -92,15 +99,16 @@ app/src/main/
 │  │  ├─ db/                     # Room (Daos, Entities, Database)
 │  │  ├─ model/                  # LyreonTrack, SearchFilter, LyreonArchive
 │  │  ├─ taste/                  # MusicTextAnalyzer, TasteRepository (profil selera)
-│  │  ├─ settings/               # SettingsRepository
+│  │  ├─ settings/               # SettingsRepository, AccountRepository (cookie YouTube)
 │  │  └─ LibraryRepository.kt
 │  ├─ download/                  # DownloadService, LyreonDownloadManager
 │  ├─ local/                     # LocalMusicRepository (musik di storage)
 │  ├─ lyrics/                    # LyricsRepository
 │  ├─ player/                    # PlayerManager, PlaybackService, ResolvingDataSource
 │  ├─ ui/                        # components/, screens/, theme/, vm/
-│  └─ yt/                        # YouTubeRepository, OkHttpDownloader
+│  └─ yt/                        # YouTubeRepository, OkHttpDownloader, YouTubeAccount
 │     └─ innertube/              # fallback InnerTube (player/search/playlist) + decipher JS (Rhino)
+│                                # + PlayerClientLadder (urutan klien & deteksi SABR-only)
 ├─ res/                          # mipmap (icon), drawable, values, xml
 └─ AndroidManifest.xml
 ```
@@ -169,6 +177,7 @@ Oleh karena itu hal yang bisa dilakukan **di sisi build/kode** agar instalasi le
 
 ## ⚙️ CI (GitHub Actions)
 
+### `android-build.yml` — build APK
 Workflow build otomatis ada di **`.github/workflows/android-build.yml`** (trigger: `push` ke `main`/`arena/*` dan PR). Ia:
 1. Setup JDK 21 + Android SDK 36.
 2. Build **Debug** lalu **Release** (`assembleRelease` dengan R8).
@@ -176,6 +185,22 @@ Workflow build otomatis ada di **`.github/workflows/android-build.yml`** (trigge
 4. Bila build gagal, ringkasan error otomatis diposting sebagai komentar commit.
 
 Jalankan manual lewat tab **Actions → Android Build → Run workflow** (atau `gh run watch` via CLI).
+
+### `extractor-radar.yml` — radar dependency (anti-rot) · *perlu diaktifkan*
+Kegagalan stream hampir selalu berawal dari pin extractor yang tertinggal dari upstream.
+Workflow **[`tools/ci/extractor-radar.yml`](tools/ci/extractor-radar.yml)** (tiap Senin +
+manual) membandingkan pin di `app/build.gradle.kts` dengan HEAD fork, lalu **membuka issue
+berisi daftar commit yang terlewat** bila tertinggal — disertai ringkasan rilis extractor
+lain di ekosistem (PipePipeExtractor / NewPipeExtractor) sebagai pembanding strategis.
+
+> **Belum aktif:** GitHub App yang dipakai untuk mendorong commit ini tidak punya izin
+> `workflows`, jadi berkasnya disimpan di `tools/ci/`. Aktifkan dengan menyalinnya ke
+> `.github/workflows/extractor-radar.yml` (dari akun yang punya izin, atau lewat UI GitHub):
+>
+> ```bash
+> git mv tools/ci/extractor-radar.yml .github/workflows/extractor-radar.yml
+> git commit -m "ci: aktifkan radar drift extractor" && git push
+> ```
 
 ## 🎵 Izin & Musik Lokal
 
@@ -190,9 +215,33 @@ Izin: Android 13+ → `READ_MEDIA_AUDIO`; ≤12 → `READ_EXTERNAL_STORAGE`. Thu
 - **Lirik** diambil lewat `LyricsRepository` dan ditampilkan sinkron di `LyricsSheet`.
 - **Radio otomatis**: saat antrean hampir habis (`maybeExtendQueue`) atau lagu berakhir (`onEnded`), `PlayerManager` mengambil related + (berselang) query persona, lalu memilih lewat `TasteRepository.diversePick()` — bebas duplikat judul‑sama.
 
+## 🔐 Akun YouTube (opsional) & ketahanan stream
+
+Sejak 2025 YouTube menggulirkan **SABR** (*server-side adaptive bitrate*) untuk permintaan
+tanpa identitas: response player berisi daftar format + `serverAbrStreamingUrl` tetapi
+**tanpa satu pun URL yang bisa di-GET**. Extractor lalu melempar
+`ContentNotSupportedException: “YouTube returned SABR-only streaming data … Try logging in
+to get HLS fallback streams.”` — dan karena ini kebijakan server (bukan per-video),
+**semua lagu gagal sekaligus** → auto-skip → loop.
+
+Lyreon bertahan berlapis (rinciannya di [`docs/streaming-resilience.md`](docs/streaming-resilience.md)):
+
+| # | Lapisan | Isi |
+|---|---------|-----|
+| 1 | Knob extractor | `setLoadingTimeout(12)` (default fork 5 s sering kepotong di jaringan seluler) + `setFetchDislike(false)` |
+| 2 | **Identitas akun** | Settings → *AKUN YOUTUBE* → tempel/impor cookie → `ServiceList.YouTube.setTokens()` → extractor pindah ke cabang login (`fetchSafariJsonPlayer`, jalur HLS). Cookie tanpa `SAPISID` **ditolak** karena justru membuat semua ekstraksi gagal |
+| 3 | Tangga klien | `PlayerClientLadder`: `visionos → tv_simply → tv_downgraded → ios → android → android_vr → tv_embedded → web_remix → web → mweb`, dengan deteksi SABR-only/HLS-only, urutan adaptif (klien terakhir berhasil dinaikkan), dan *cooldown* 3 menit |
+| 4 | *Circuit breaker* | `consecutiveFailures` di-reset **hanya** setelah bukti kemajuan (posisi maju ≥ 8 s), plus rem burst (>4 skip/30 s). Saat trip: antrean dipertahankan, pesan *actionable*, radio auto-extend ditahan |
+| 5 | Diagnostik | Settings → *KESEHATAN STREAM* → **Tes koneksi**: verdict + latensi tiap klien, hasil extractor, riwayat 40 kejadian |
+
+**Privasi cookie:** disimpan di DataStore privat aplikasi, hanya dikirim ke domain Google,
+tidak pernah dicatat ke log (log hanya memuat jumlah cookie & ada/tidaknya SAPISID), dan
+tidak pernah melewati server Lyreon. Gunakan akun yang risikonya siap Anda tanggung.
+
+
 ## 🧩 Catatan & Keterbatasan
 
-- **Fragilitas extractor:** YouTube sesekali mengubah layout/skema stream → sebagian lagu bisa "tak tersedia". App sudah melakukan retry (termasuk resolve ulang saat token basi), fallback ke kandidat format beda, **dan fallback InnerTube** (langsung ke `youtubei/v1`) untuk stream/pencarian/playlist bila Metrolist gagal.
+- **Fragilitas extractor:** YouTube mengubah kebijakan klien secara berkala → sebagian (atau semua) lagu bisa “tak tersedia”. Penanganan Lyreon: retry + resolve ulang saat token basi, kandidat format beda (m4a ↔ webm/opus), tangga klien InnerTube, identitas akun (lapisan 2 di atas), dan *circuit breaker* agar kegagalan tidak berubah jadi loop. Yang **belum** didukung: pemutaran manifest **HLS** (butuh `media3-exoplayer-hls` + resolusi MIME sebelum `MediaItem` dibuat) dan **poToken/BotGuard** — keduanya tercatat sebagai pekerjaan lanjutan di [`docs/streaming-resilience.md`](docs/streaming-resilience.md) §6, beserta syarat naik ke extractor ber-SABR native (§6.3).
 - **Charts artis** (tab Search/Home) mengandalkan YouTube Music Charts + profil kanal; bila gagal, digunakan kurasi per‑wilayah agar kartu tidak kosong.
 - **Legalitas:** hanya untuk pemutaran pribadi; bukan pengganti layanan berlangganan resmi.
 

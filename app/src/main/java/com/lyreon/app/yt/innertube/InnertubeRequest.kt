@@ -3,6 +3,7 @@ package com.lyreon.app.yt.innertube
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONArray
 import org.json.JSONObject
 
 /** Bangun permintaan InnerTube (youtubei/v1) yang siap dikirim ke Google. */
@@ -113,6 +114,107 @@ internal object InnertubeRequest {
             .put("videoId", videoId)
         val url = "https://www.youtube.com/youtubei/v1/next?key=${InnertubeConfig.apiKey()}&prettyPrint=false"
         return build(url, payload.toString(), client)
+    }
+
+    // ------------------------------------------------------------------
+    // Jalur tangga klien (PlayerClientLadder) — bentuk request mengikuti
+    // extractor hulu per September 2026: klien mobile ke youtubei.googleapis.com
+    // dengan `&t=…&id=…`, klien web/TV ke www.youtube.com tanpa parameter `key`.
+    // ------------------------------------------------------------------
+
+    /** Alfabet & panjang nonce sama dengan hulu: `cpn` 16 karakter, `t` 12. */
+    private val NONCE_ALPHABET =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_".toCharArray()
+    private val nonceRandom = java.security.SecureRandom()
+
+    fun nonce(length: Int): String {
+        val out = StringBuilder(length)
+        repeat(length) { out.append(NONCE_ALPHABET[nonceRandom.nextInt(NONCE_ALPHABET.size)]) }
+        return out.toString()
+    }
+
+    /**
+     * Request player untuk satu [PlayerClientSpec].
+     *
+     * @param extraHeaders header identitas (Cookie + `Authorization: SAPISIDHASH`)
+     *   dari [com.lyreon.app.yt.YouTubeAccount.authHeaders] — dipasang terakhir
+     *   supaya tidak tertimpa header bawaan klien.
+     */
+    fun playerFromSpec(
+        spec: PlayerClientSpec,
+        videoId: String,
+        visitorData: String?,
+        webVersion: String,
+        extraHeaders: Map<String, String> = emptyMap(),
+    ): Request {
+        val version = spec.clientVersion.ifBlank { webVersion }
+
+        val client = JSONObject()
+            .put("clientName", spec.clientName)
+            .put("clientVersion", version)
+            .put("clientScreen", spec.clientScreen)
+        spec.platform?.let { client.put("platform", it) }
+        visitorData?.takeIf { it.isNotBlank() }?.let { client.put("visitorData", it) }
+        spec.deviceMake?.let { client.put("deviceMake", it) }
+        spec.deviceModel?.let { client.put("deviceModel", it) }
+        spec.osName?.let { client.put("osName", it) }
+        spec.osVersion?.let { client.put("osVersion", it) }
+        if (spec.androidSdkVersion > 0) client.put("androidSdkVersion", spec.androidSdkVersion)
+        client.put("hl", "en")
+        client.put("gl", "US")
+        client.put("utcOffsetMinutes", 0)
+
+        val context = JSONObject().put("client", client)
+        if (spec.embedUrl) {
+            context.put(
+                "thirdParty",
+                JSONObject().put("embedUrl", "https://www.youtube.com/watch?v=$videoId"),
+            )
+        }
+        context.put(
+            "request",
+            JSONObject()
+                .put("internalExperimentFlags", JSONArray())
+                .put("useSsl", true),
+        )
+        context.put("user", JSONObject().put("lockedSafetyMode", false))
+
+        val payload = JSONObject()
+            .put("context", context)
+            .put("videoId", videoId)
+            .put("cpn", nonce(16))
+            .put("contentCheckOk", true)
+            .put("racyCheckOk", true)
+            .put(
+                "playbackContext",
+                JSONObject().put(
+                    "contentPlaybackContext",
+                    JSONObject().put("html5Preference", "HTML5_PREF_WANTS"),
+                ),
+            )
+
+        val url = if (spec.mobileEndpoint) {
+            "https://youtubei.googleapis.com/youtubei/v1/player?prettyPrint=false" +
+                "&t=${nonce(12)}&id=$videoId"
+        } else {
+            "https://www.youtube.com/youtubei/v1/player?prettyPrint=false"
+        }
+
+        val builder = Request.Builder()
+            .url(url)
+            .header("Content-Type", "application/json")
+            .header("User-Agent", spec.userAgent)
+            .header("X-YouTube-Client-Name", spec.clientId)
+            .header("X-Youtube-Client-Version", version)
+            .header("Accept-Language", "en-US,en;q=0.9")
+        if (spec.mobileEndpoint) {
+            builder.header("X-Goog-Api-Format-Version", "2")
+        }
+        spec.origin?.let { builder.header("Origin", it) }
+        spec.referer?.let { builder.header("Referer", it) }
+        extraHeaders.forEach { (name, value) -> builder.header(name, value) }
+
+        return builder.post(payload.toString().toRequestBody(JSON)).build()
     }
 
     private fun build(url: String, body: String, client: Client): Request {

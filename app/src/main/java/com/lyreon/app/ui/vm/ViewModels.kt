@@ -733,8 +733,82 @@ class YtPlaylistViewModel(private val locator: ServiceLocator, private val url: 
 
 class SettingsViewModel(private val locator: ServiceLocator) : ViewModel() {
 
+    private companion object {
+        /** Video yang dipakai "Tes koneksi" bila tidak ada lagu yang diputar. */
+        const val PROBE_VIDEO_ID = "dQw4w9WgXcQ"
+    }
+
     val settings = locator.settings.settings
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), com.lyreon.app.data.settings.LyreonSettings())
+
+    /** Status identitas YouTube (cookie akun). */
+    val account = locator.account.state
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), com.lyreon.app.data.settings.AccountState.EMPTY)
+
+    /** Kondisi jalur stream dari PlayerManager (OK / DEGRADED / TRIPPED). */
+    val health = locator.player.health
+
+    private val _accountResult =
+        MutableStateFlow<com.lyreon.app.data.settings.AccountSaveResult?>(null)
+    val accountResult: StateFlow<com.lyreon.app.data.settings.AccountSaveResult?> =
+        _accountResult.asStateFlow()
+
+    private val _probe = MutableStateFlow<YouTubeRepository.StreamProbe?>(null)
+    val probe: StateFlow<YouTubeRepository.StreamProbe?> = _probe.asStateFlow()
+
+    private val _probeRunning = MutableStateFlow(false)
+    val probeRunning: StateFlow<Boolean> = _probeRunning.asStateFlow()
+
+    /** Simpan cookie akun → langsung dipasang ke extractor + cache stream dibuang. */
+    fun saveCookie(raw: String) {
+        viewModelScope.launch {
+            val result = locator.account.save(raw)
+            _accountResult.value = result
+            if (result == com.lyreon.app.data.settings.AccountSaveResult.SAVED) {
+                locator.youtube.invalidateAll()
+            }
+        }
+    }
+
+    fun setAccountEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            locator.account.setEnabled(enabled)
+            locator.youtube.invalidateAll()
+        }
+    }
+
+    fun clearAccount() {
+        viewModelScope.launch {
+            locator.account.clear()
+            locator.youtube.invalidateAll()
+            _accountResult.value = null
+            _probe.value = null
+        }
+    }
+
+    fun consumeAccountResult() {
+        _accountResult.value = null
+    }
+
+    /**
+     * Uji seluruh jalur resolusi untuk satu video (link atau ID boleh) dan
+     * laporkan klien mana yang masih memberi URL — diagnostik SABR di lapangan.
+     */
+    fun runStreamTest(input: String?) {
+        if (_probeRunning.value) return
+        _probeRunning.value = true
+        viewModelScope.launch {
+            val target = input?.trim()?.takeIf { it.isNotBlank() }
+                ?: locator.player.state.value.currentTrack?.videoId
+                ?: PROBE_VIDEO_ID
+            _probe.value = runCatching { locator.youtube.probeStream(target) }.getOrNull()
+            _probeRunning.value = false
+        }
+    }
+
+    fun retryStream() = locator.player.retryAfterFix()
+
+    fun dismissHealthAlert() = locator.player.dismissHealthAlert()
 
     fun setTheme(mode: com.lyreon.app.ui.theme.ThemeMode) {
         viewModelScope.launch { locator.settings.setThemeMode(mode) }

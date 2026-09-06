@@ -74,6 +74,7 @@ import com.lyreon.app.core.LocaleHelper
 import com.lyreon.app.core.ServiceLocator
 import com.lyreon.app.data.model.LyreonTrack
 import com.lyreon.app.data.model.YtPlaylist
+import com.lyreon.app.player.StreamHealthLevel
 import com.lyreon.app.ui.components.AddToPlaylistDialog
 import com.lyreon.app.ui.components.DonateDialog
 import com.lyreon.app.ui.components.MiniPlayerBar
@@ -204,9 +205,23 @@ fun LyreonRoot(
     var showDonate by remember { mutableStateOf(false) }
 
     // --- Snackbar dari player events ---
+    // Saat circuit breaker stream terbuka, snackbar membawa aksi: buka Pengaturan
+    // (tempat memasang cookie akun / melihat diagnostik klien) atau coba lagi.
+    val snackContext = androidx.compose.ui.platform.LocalContext.current
     LaunchedEffect(Unit) {
         player.events.collect { msg ->
-            runCatching { snackbarHostState.showSnackbar(msg) }
+            val tripped = player.health.value.level == StreamHealthLevel.TRIPPED
+            val actionLabel = if (tripped) {
+                snackContext.getString(R.string.stream_snackbar_action)
+            } else {
+                null
+            }
+            runCatching {
+                val result = snackbarHostState.showSnackbar(msg, actionLabel = actionLabel)
+                if (tripped && result == androidx.compose.material3.SnackbarResult.ActionPerformed) {
+                    navController.navigate("settings") { launchSingleTop = true }
+                }
+            }
         }
     }
 

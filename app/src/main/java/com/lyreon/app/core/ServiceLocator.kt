@@ -73,6 +73,14 @@ class ServiceLocator(val app: LyreonApp) {
 
     val settings: SettingsRepository by lazy { SettingsRepository(app) }
 
+    /**
+     * Identitas YouTube (cookie akun). Dipisah dari [settings] karena cookie
+     * adalah kredensial — tidak boleh ikut mengalir ke flow preferensi UI.
+     */
+    val account: com.lyreon.app.data.settings.AccountRepository by lazy {
+        com.lyreon.app.data.settings.AccountRepository(app)
+    }
+
     /** Profil selera pengguna untuk algoritma rekomendasi (lokal, on-device). */
     val taste: com.lyreon.app.data.taste.TasteRepository by lazy {
         com.lyreon.app.data.taste.TasteRepository(app)
@@ -99,6 +107,12 @@ class ServiceLocator(val app: LyreonApp) {
         // Kualitas stream mengikuti pengaturan
         appScope.launch {
             settings.settings.collect { youtube.defaultQuality = it.audioQuality }
+        }
+        // Identitas YouTube → pasang cookie ke extractor (ServiceList.YouTube.setTokens)
+        // dan buang cache URL stream setiap identitas berubah. Tanpa ini extractor
+        // selalu memakai jalur anonim yang sedang dipaksa YouTube ke SABR-only.
+        appScope.launch {
+            account.state.collect { st -> youtube.applyAccount(if (st.active) st.cookieHeader else null) }
         }
         // Muat profil selera tersimpan (algoritma rekomendasi)
         appScope.launch { taste.warm() }

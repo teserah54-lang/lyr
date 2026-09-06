@@ -1,5 +1,6 @@
 package com.lyreon.app.yt.innertube
 
+import android.util.Log
 import com.lyreon.app.data.model.LyreonTrack
 import com.lyreon.app.data.settings.AudioQuality
 import com.lyreon.app.yt.LyreonHttp
@@ -19,20 +20,55 @@ import java.util.concurrent.ConcurrentHashMap
  * atau mengembalikan stream kosong. Semua akses jaringan on-device langsung ke
  * Google (`youtubei/v1` + CDN `googlevideo.com`) — tanpa server perantara.
  */
+/**
+ * Kegagalan resolusi stream yang membawa **alasan**, bukan cuma pesan generik.
+ *
+ * Dibawa naik sampai `PlayerManager` supaya pesan ke pengguna bisa membedakan
+ * "YouTube sedang memaksa SABR (aktifkan akun)" dari "video ini memang
+ * diblokir/dihapus" — dua hal yang membutuhkan tindakan berbeda.
+ */
+class StreamUnavailableException(
+    message: String,
+    /** Setidaknya satu klien membalas data SABR tanpa URL. */
+    val sabrOnly: Boolean,
+    /** Hanya `hlsManifestUrl` yang tersedia (butuh pemutar HLS). */
+    val hlsOnly: Boolean,
+    /** Alasan `playabilityStatus` terakhir, mis. "LOGIN_REQUIRED: …". */
+    val playability: String,
+    /** Ringkasan `klien=VERDICT` dari seluruh percobaan. */
+    val attempts: List<String>,
+) : IOException(message)
+
+/** Satu percobaan klien dalam laporan [InnertubeFallback.probeBlocking]. */
+data class ProbeAttempt(
+    val client: String,
+    val verdict: String,
+    val elapsedMs: Long,
+    val detail: String,
+)
+
+/**
+ * Laporan diagnostik resolusi satu video — dibaca dari Settings → "Tes koneksi".
+ * Inilah jawaban untuk "bagian mana persisnya yang perlu di-patch": terlihat
+ * klien mana yang masih memberi URL, mana yang sudah SABR-only.
+ */
+data class LadderProbe(
+    val videoId: String,
+    val loggedIn: Boolean,
+    val usableClient: String?,
+    val audioUrlFound: Boolean,
+    val sabrOnly: Boolean,
+    val hlsOnly: Boolean,
+    val totalMs: Long,
+    val attempts: List<ProbeAttempt>,
+) {
+    val success: Boolean get() = usableClient != null && audioUrlFound
+}
+
 class InnertubeFallback {
 
     companion object {
         private const val TAG = "InnertubeFallback"
-        // Semua client yang dicoba, urut dari yang paling tahan throttling & memberi stream langsung
-        private val CLIENTS = listOf(
-            Client.ANDROID_VR,
-            Client.ANDROID_TESTSUITE,
-            Client.IOS,
-            Client.TV_EMBEDDED,
-            Client.ANDROID,
-            Client.WEB_REMIX,
-            Client.WEB,
-        )
     }
 
     private val http = LyreonHttp.extractClient
@@ -45,6 +81,15 @@ class InnertubeFallback {
         streamCache.remove(videoId)
     }
 
+    /**
+     * Buang SEMUA cache stream. Wajib dipanggil saat identitas YouTube berubah
+     * (login/logout): URL yang di-resolve sebagai anonim berasal dari klien
+     * berbeda dan tidak bisa dipakai ulang begitu cookie dipasang.
+     */
+    fun invalidateAll() {
+        streamCache.clear()
+    }
+
     /** Pastikan konfigurasi InnerTube sudah di-scrape (idempoten, thread-safe). */
     private fun ensureReady() {
         InnertubeConfig.ensure(http, ua)
@@ -52,7 +97,7 @@ class InnertubeFallback {
     }
 
     // ------------------------------------------------------------------
-    // Resolusi stream / player
+    // Resolusi stream / player — lewat tangga klien (PlayerClientLadder)
     // ------------------------------------------------------------------
 
     /** Blocking — aman dipanggil dari thread loader ExoPlayer / service unduhan. */
@@ -65,36 +110,172 @@ class InnertubeFallback {
         val lock = locks.getOrPut(videoId) { Any() }
         synchronized(lock) {
             streamCache[videoId]?.let { return it }
-            val resolved = fetchPlayer(videoId, quality) ?: throw IOException("InnerTube: tidak ada stream audio untuk $videoId")
+            val resolved = fetchPlayer(videoId, quality)
             streamCache[videoId] = resolved
             return resolved
         }
     }
 
-    private fun fetchPlayer(videoId: String, quality: AudioQuality): ResolvedAudio? {
+    /**
+     * Turun sepanjang tangga klien sampai ada yang memberi URL audio langsung.
+     * Melempar [StreamUnavailableException] bila semua klien gagal — dengan
+     * alasan yang bisa ditindaklanjuti, bukan pesan kosong.
+     */
+    private fun fetchPlayer(videoId: String, quality: AudioQuality): ResolvedAudio {
         val visitor = InnertubeConfig.visitor()
-        for (client in CLIENTS) {
-            val version = if (client == Client.WEB) InnertubeConfig.webClientVersion()
-            else if (client == Client.ANDROID) InnertubeConfig.androidClientVersion()
-            else client.version
-            try {
-                val (url, req) = InnertubeRequest.player(client, version, videoId, visitor)
-                val body = http.newCall(req).execute().use { resp ->
-                    if (!resp.isSuccessful) return@use ""
-                    resp.body?.string().orEmpty()
-                }
-                if (body.isBlank()) continue
-                val root = JSONObject(body)
-                val status = root.optJSONObject("playabilityStatus")?.optString("status").orEmpty()
-                if (status.isNotEmpty() && !status.equals("OK", ignoreCase = true)) continue
-                val sd = root.optJSONObject("streamingData") ?: continue
-                val picked = pickAudio(sd, quality) ?: continue
-                return picked
+        val webVersion = InnertubeConfig.webClientVersion()
+        val authHeaders = com.lyreon.app.yt.YouTubeAccount.authHeaders()
+
+        // Snapshot urutan sekali: cooldown bisa berubah di tengah loop dan kita
+        // ingin satu lintasan yang konsisten.
+        val ladder = PlayerClientLadder.ordered()
+        val attempts = ArrayList<String>(ladder.size)
+        var sawSabr = false
+        var sawHls = false
+        var playability = ""
+
+        for (spec in ladder) {
+            val startedAt = System.currentTimeMillis()
+            val attempt = try {
+                attemptClient(spec, videoId, visitor, webVersion, authHeaders)
             } catch (e: Exception) {
-                // coba client berikutnya
+                ClientAttempt(ClientVerdict.TRANSPORT_ERROR, null, e.javaClass.simpleName)
+            }
+
+            // Klien bisa membalas URL (USABLE) tetapi tanpa format audio yang
+            // bisa dipakai — itu bukan kemenangan, jadi dinilai ulang sebelum
+            // dicatat (agar lastGood tidak menunjuk klien yang tak berguna).
+            var verdict = attempt.verdict
+            var detail = attempt.detail
+            var picked: ResolvedAudio? = null
+            if (verdict == ClientVerdict.USABLE) {
+                val streamingData = attempt.root?.optJSONObject("streamingData")
+                picked = streamingData?.let { pickAudio(it, quality) }
+                if (picked == null) {
+                    verdict = ClientVerdict.NO_STREAMING_DATA
+                    detail = "tanpa format audio yang bisa dipakai"
+                }
+            }
+
+            val elapsed = System.currentTimeMillis() - startedAt
+            attempts += "${spec.key}=${verdict.name}"
+            if (verdict == ClientVerdict.PLAYABILITY_BLOCKED) playability = detail
+            when (verdict) {
+                ClientVerdict.SABR_ONLY -> sawSabr = true
+                ClientVerdict.HLS_ONLY -> sawHls = true
+                else -> Unit
+            }
+            PlayerClientLadder.note(spec.key, verdict, elapsed, detail)
+
+            if (picked != null) {
+                PlayerClientLadder.push("audio OK via '${spec.key}' (${elapsed}ms)")
+                Log.i(TAG, "resolve $videoId OK via klien '${spec.key}' dalam ${elapsed}ms")
+                return picked
             }
         }
-        return null
+
+        val reason = buildString {
+            append("InnerTube: tidak ada klien yang memberi stream audio untuk $videoId")
+            if (sawSabr) append(" · SABR-only terdeteksi")
+            if (sawHls) append(" · hanya HLS")
+            if (playability.isNotBlank()) append(" · $playability")
+        }
+        Log.w(TAG, "$reason (percobaan: ${attempts.joinToString()})")
+        throw StreamUnavailableException(
+            message = reason,
+            sabrOnly = sawSabr,
+            hlsOnly = sawHls,
+            playability = playability,
+            attempts = attempts,
+        )
+    }
+
+    private class ClientAttempt(
+        val verdict: ClientVerdict,
+        val root: JSONObject?,
+        val detail: String,
+    )
+
+    private fun attemptClient(
+        spec: PlayerClientSpec,
+        videoId: String,
+        visitor: String?,
+        webVersion: String,
+        authHeaders: Map<String, String>,
+    ): ClientAttempt {
+        val request = InnertubeRequest.playerFromSpec(spec, videoId, visitor, webVersion, authHeaders)
+        val body = http.newCall(request).execute().use { resp ->
+            if (!resp.isSuccessful) {
+                return ClientAttempt(ClientVerdict.TRANSPORT_ERROR, null, "HTTP ${resp.code}")
+            }
+            resp.body?.string().orEmpty()
+        }
+        if (body.isBlank()) return ClientAttempt(ClientVerdict.TRANSPORT_ERROR, null, "body kosong")
+        val root = runCatching { JSONObject(body) }.getOrNull()
+            ?: return ClientAttempt(ClientVerdict.TRANSPORT_ERROR, null, "body bukan JSON")
+        val verdict = PlayerClientLadder.inspect(root, videoId)
+        val detail = if (verdict == ClientVerdict.PLAYABILITY_BLOCKED) {
+            PlayerClientLadder.playabilityReason(root)
+        } else {
+            ""
+        }
+        return ClientAttempt(verdict, root, detail)
+    }
+
+    /**
+     * Jalankan seluruh tangga klien untuk satu video dan laporkan hasilnya —
+     * dipakai tombol "Tes koneksi" di Settings. Tidak memakai cache supaya
+     * hasilnya selalu kondisi jaringan saat ini.
+     */
+    fun probeBlocking(videoId: String, quality: AudioQuality): LadderProbe {
+        ensureReady()
+        val startedAt = System.currentTimeMillis()
+        val visitor = InnertubeConfig.visitor()
+        val webVersion = InnertubeConfig.webClientVersion()
+        val authHeaders = com.lyreon.app.yt.YouTubeAccount.authHeaders()
+
+        val ladder = PlayerClientLadder.ordered()
+        val attempts = ArrayList<ProbeAttempt>(ladder.size)
+        var usableClient: String? = null
+        var audioFound = false
+        var sawSabr = false
+        var sawHls = false
+
+        for (spec in ladder) {
+            val clientStartedAt = System.currentTimeMillis()
+            val attempt = try {
+                attemptClient(spec, videoId, visitor, webVersion, authHeaders)
+            } catch (e: Exception) {
+                ClientAttempt(ClientVerdict.TRANSPORT_ERROR, null, e.javaClass.simpleName)
+            }
+            val elapsed = System.currentTimeMillis() - clientStartedAt
+            attempts += ProbeAttempt(spec.key, attempt.verdict.name, elapsed, attempt.detail)
+            PlayerClientLadder.note(spec.key, attempt.verdict, elapsed, attempt.detail)
+
+            when (attempt.verdict) {
+                ClientVerdict.SABR_ONLY -> sawSabr = true
+                ClientVerdict.HLS_ONLY -> sawHls = true
+                ClientVerdict.USABLE -> {
+                    usableClient = usableClient ?: spec.key
+                    val streamingData = attempt.root?.optJSONObject("streamingData")
+                    if (streamingData != null && pickAudio(streamingData, quality) != null) {
+                        audioFound = true
+                    }
+                }
+                else -> Unit
+            }
+        }
+
+        return LadderProbe(
+            videoId = videoId,
+            loggedIn = com.lyreon.app.yt.YouTubeAccount.isLoggedIn,
+            usableClient = usableClient,
+            audioUrlFound = audioFound,
+            sabrOnly = sawSabr,
+            hlsOnly = sawHls,
+            totalMs = System.currentTimeMillis() - startedAt,
+            attempts = attempts,
+        )
     }
 
     private fun pickAudio(sd: JSONObject, quality: AudioQuality): ResolvedAudio? {

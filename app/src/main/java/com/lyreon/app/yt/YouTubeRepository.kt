@@ -163,6 +163,12 @@ class YouTubeRepository {
                     OkHttpDownloader.init(LyreonHttp.extractClient),
                     Localization("en", "US"),
                 )
+                // Knob extractor: batas tunggu player response dinaikkan (default
+                // fork 5 s terlalu pendek di jaringan seluler) dan panggilan
+                // dislike pihak ketiga dimatikan (tidak dipakai Lyreon).
+                YouTubeAccount.tune()
+                // Cookie akun (bila ada) dipasang oleh ServiceLocator begitu
+                // DataStore terbaca — lihat applyAccount().
                 initialized = true
             }
         }
@@ -308,14 +314,31 @@ class YouTubeRepository {
         val info = try {
             StreamInfo.getInfo(ServiceList.YouTube, "https://www.youtube.com/watch?v=$videoId")
         } catch (e: Exception) {
-            // Metrolist gagal → coba jalur fallback InnerTube
+            // Metrolist gagal → catat alasannya (SABR-only vs error per-video),
+            // lalu coba jalur fallback InnerTube.
+            noteExtractorFailure(videoId, e)
             return fallbackResolve(videoId, quality, cause = e)
         }
-        val streams: List<AudioStream> = info.audioStreams.orEmpty()
+        val rawStreams: List<AudioStream> = info.audioStreams.orEmpty()
             .filter { it.content.isNullOrBlank().not() }
+
+        // Lyreon memutar lewat ProgressiveMediaSource, jadi URL manifest HLS
+        // (jalur fallback yang terbuka saat login) TIDAK bisa dipakai langsung —
+        // menyerahkannya ke pemutar progresif hanya menghasilkan error format dan
+        // skip tambahan. Disaring di sini, dilaporkan lewat diagnostik, dan
+        // dicatat sebagai pekerjaan lanjutan di docs/streaming-resilience.md.
+        val streams = rawStreams.filterNot { isHlsStream(it) }
+        if (streams.isEmpty() && rawStreams.isNotEmpty()) {
+            com.lyreon.app.yt.innertube.PlayerClientLadder.push(
+                "extractor: ${rawStreams.size} stream HLS saja untuk $videoId (butuh pemutar HLS)",
+            )
+        }
 
         if (streams.isEmpty()) {
             // Metrolist OK tapi tanpa stream audio → fallback InnerTube
+            com.lyreon.app.yt.innertube.PlayerClientLadder.push(
+                "extractor: 0 stream audio untuk $videoId",
+            )
             return fallbackResolve(videoId, quality, cause = null)
         }
 
@@ -377,17 +400,57 @@ class YouTubeRepository {
         com.lyreon.app.yt.innertube.InnertubeFallback()
     }
 
+    /**
+     * Rekam kegagalan extractor dan bedakan dua sebab yang butuh tindakan beda:
+     *  - **SABR-only** → kebijakan server YouTube, kena ke semua lagu; jalurnya
+     *    login (cookie) atau ganti klien — lihat `YouTubeAccount`/`PlayerClientLadder`.
+     *  - **selain itu** → biasanya spesifik video (privat, dihapus, batas umur).
+     */
+    private fun noteExtractorFailure(videoId: String, e: Exception) {
+        val message = e.message.orEmpty()
+        if (message.contains("SABR", ignoreCase = true)) {
+            com.lyreon.app.yt.innertube.PlayerClientLadder.noteExtractorSabr(
+                "$videoId (${e.javaClass.simpleName})",
+            )
+        } else {
+            com.lyreon.app.yt.innertube.PlayerClientLadder.push(
+                "extractor gagal untuk $videoId (${e.javaClass.simpleName})",
+            )
+        }
+        Log.w(TAG, "extractor gagal untuk $videoId: ${e.javaClass.simpleName}: ${message.take(200)}")
+    }
+
     /** Resolve via jalur InnerTube; melempar IOException bila gagal juga. */
     private fun fallbackResolve(videoId: String, quality: AudioQuality, cause: Throwable?): ResolvedAudio {
-        val resolved = runCatching { fallback.resolveAudioBlocking(videoId, quality) }.getOrNull()
-        if (resolved != null) {
+        try {
+            val resolved = fallback.resolveAudioBlocking(videoId, quality)
             Log.i("InnertubeFallback", "fallback OK untuk $videoId")
             return resolved.copy(videoId = videoId)
+        } catch (e: com.lyreon.app.yt.innertube.StreamUnavailableException) {
+            // Bawa alasan apa adanya (SABR-only / HLS-only / playability) ke atas
+            // supaya PlayerManager bisa memberi pesan yang bisa ditindaklanjuti.
+            throw e
+        } catch (e: Exception) {
+            throw IOException(
+                "Stream tidak tersedia (Metrolist + InnerTube gagal) untuk $videoId",
+                cause ?: e,
+            )
         }
-        throw IOException(
-            "Stream tidak tersedia (Metrolist + InnerTube gagal) untuk $videoId",
-            cause,
-        )
+    }
+
+    /**
+     * True bila stream ini sebenarnya manifest HLS (m3u8), bukan file audio
+     * progresif. Muncul dari jalur login (`hlsManifestUrl` → master playlist)
+     * yang dibuka extractor ketika format langsung tidak tersedia.
+     */
+    private fun isHlsStream(stream: AudioStream): Boolean {
+        val url = stream.content.orEmpty()
+        val mime = stream.format?.mimeType.orEmpty()
+        return mime.contains("mpegurl", ignoreCase = true) ||
+            mime.contains("x-mpegURL", ignoreCase = true) ||
+            url.contains(".m3u8", ignoreCase = true) ||
+            url.contains("/api/manifest/hls_variant") ||
+            url.contains("/api/manifest/hls/")
     }
 
     private fun parseExpire(url: String): Long {
@@ -587,6 +650,103 @@ class YouTubeRepository {
     fun invalidate(videoId: String) {
         streamCache.remove(videoId)
         fallback.invalidate(videoId)
+    }
+
+    /** Buang seluruh cache URL stream di kedua jalur (extractor & InnerTube). */
+    fun invalidateAll() {
+        streamCache.clear()
+        fallback.invalidateAll()
+    }
+
+    /**
+     * Pasang/lepas identitas akun YouTube, lalu buang cache stream bila
+     * identitas benar-benar berubah. Dipanggil ServiceLocator setiap
+     * `AccountState` berubah (start-up, simpan cookie, logout, toggle).
+     *
+     * Ini call site `ServiceList.YouTube.setTokens()` yang dulu tidak pernah ada:
+     * tanpa itu extractor selalu lewat jalur anonim (`fetchAndroidVRJsonPlayer`)
+     * yang sedang dipaksa YouTube ke SABR-only, dan jalur `fetchSafariJsonPlayer`
+     * (login → HLS fallback) tidak pernah tersentuh.
+     */
+    fun applyAccount(cookie: String?) {
+        val before = YouTubeAccount.generation
+        YouTubeAccount.apply(cookie)
+        if (YouTubeAccount.generation != before) {
+            invalidateAll()
+            Log.i(TAG, "identitas YouTube berubah → cache stream dibuang · ${YouTubeAccount.describe()}")
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Diagnostik stream (Settings → "Tes koneksi")
+    // ------------------------------------------------------------------
+
+    /**
+     * Laporan satu percobaan resolusi menyeluruh: jalur extractor dulu, lalu
+     * seluruh tangga klien InnerTube. Inilah alat untuk menjawab "YouTube sedang
+     * menutup klien yang mana hari ini?" tanpa perlu membongkar APK.
+     */
+    data class StreamProbe(
+        val videoId: String,
+        val loggedIn: Boolean,
+        val extractorOk: Boolean,
+        val extractorAudioStreams: Int,
+        val extractorMs: Long,
+        val extractorError: String,
+        val ladder: com.lyreon.app.yt.innertube.LadderProbe,
+        val diagnostics: List<String>,
+    ) {
+        /** True bila setidaknya satu jalur masih memberi URL audio yang bisa diputar. */
+        val anyPathWorks: Boolean get() = extractorOk || ladder.success
+    }
+
+    suspend fun probeStream(videoId: String): StreamProbe = withContext(Dispatchers.IO) {
+        val id = videoIdOf(videoId).ifBlank { videoId }
+        invalidate(id)
+
+        val startedAt = System.currentTimeMillis()
+        val extractorResult = runCatching {
+            StreamInfo.getInfo(ServiceList.YouTube, "https://www.youtube.com/watch?v=$id")
+        }
+        val extractorMs = System.currentTimeMillis() - startedAt
+        val info = extractorResult.getOrNull()
+        val audioCount = runCatching {
+            info?.audioStreams.orEmpty().count { !it.content.isNullOrBlank() }
+        }.getOrDefault(0)
+        val extractorError = extractorResult.exceptionOrNull()?.let { e ->
+            "${e.javaClass.simpleName}: ${e.message.orEmpty().take(180)}"
+        }.orEmpty()
+
+        val ladderProbe = runCatching { fallback.probeBlocking(id, defaultQuality) }.getOrElse { e ->
+            com.lyreon.app.yt.innertube.LadderProbe(
+                videoId = id,
+                loggedIn = YouTubeAccount.isLoggedIn,
+                usableClient = null,
+                audioUrlFound = false,
+                sabrOnly = false,
+                hlsOnly = false,
+                totalMs = 0L,
+                attempts = listOf(
+                    com.lyreon.app.yt.innertube.ProbeAttempt(
+                        client = "-",
+                        verdict = "TRANSPORT_ERROR",
+                        elapsedMs = 0L,
+                        detail = e.javaClass.simpleName,
+                    ),
+                ),
+            )
+        }
+
+        StreamProbe(
+            videoId = id,
+            loggedIn = YouTubeAccount.isLoggedIn,
+            extractorOk = extractorResult.isSuccess && audioCount > 0,
+            extractorAudioStreams = audioCount,
+            extractorMs = extractorMs,
+            extractorError = extractorError,
+            ladder = ladderProbe,
+            diagnostics = com.lyreon.app.yt.innertube.PlayerClientLadder.report(),
+        )
     }
 
     suspend fun warmUp(vararg videoIds: String) = withContext(Dispatchers.IO) {

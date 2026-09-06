@@ -242,4 +242,61 @@
     <string name="region_america">Americas</string>
     <string name="region_africa">Africa</string>
     <string name="region_arab">Arab World</string>
+    <!-- YouTube account (cookie login): opens the extractor path YouTube is not forcing to SABR -->
+    <string name="sec_account">YOUTUBE ACCOUNT</string>
+    <string name="account_title">Sign in to unlock stream delivery</string>
+    <string name="account_body">YouTube forces the SABR protocol on anonymous requests, so every track can fail at once. Adding your account cookie opens the Safari/HLS path in the extractor and stops the stream-unavailable loop.</string>
+    <string name="account_status_off">Anonymous mode — no account</string>
+    <string name="account_status_on">Signed in · %1$d cookies installed</string>
+    <string name="account_status_disabled">Cookie stored but disabled</string>
+    <string name="account_status_incomplete">Cookie rejected — no SAPISID</string>
+    <string name="account_enable_title">Use account for streaming</string>
+    <string name="account_enable_body">Turn off to go back to anonymous mode without deleting the cookie.</string>
+    <string name="account_paste">PASTE COOKIE</string>
+    <string name="account_import">IMPORT FILE</string>
+    <string name="account_remove">REMOVE</string>
+    <string name="account_privacy">The cookie stays on this device and is only ever sent to Google — no Lyreon server in between.</string>
+    <string name="account_dialog_title">Paste YouTube cookie</string>
+    <string name="account_dialog_body">Sign in to youtube.com in a browser, export the cookies (Cookie-Editor or Get cookies.txt LOCALLY), then paste them here. Cookie header, cookies.txt (Netscape) and JSON exports are all accepted.</string>
+    <string name="account_dialog_hint">SAPISID=…; __Secure-1PSID=…; HSID=…</string>
+    <string name="account_saved">Account installed — stream cache cleared.</string>
+    <string name="account_rejected_empty">Nothing to save.</string>
+    <string name="account_rejected_format">Unrecognised format. Make sure it contains YouTube name=value cookie pairs.</string>
+    <string name="account_rejected_no_sapisid">Rejected: cookie without SAPISID. Forcing it would break EVERY track, so Lyreon stays anonymous.</string>
+    <string name="account_remove_title">Remove YouTube account?</string>
+    <string name="account_remove_body">The cookie is deleted from this device and the extractor returns to anonymous mode.</string>
+    <string name="account_removed">Account removed — back to anonymous mode.</string>
+    <string name="account_test">TEST CONNECTION</string>
+
+    <!-- Stream health & client ladder diagnostics -->
+    <string name="sec_stream_health">STREAM HEALTH</string>
+    <string name="health_ok">Healthy — no consecutive failures.</string>
+    <string name="health_degraded">Degraded — some tracks were skipped.</string>
+    <string name="health_tripped">Stopped — %1$d consecutive failures.</string>
+    <string name="health_body">The player stops skipping after repeated failures and only resumes once a track is provably playing.</string>
+    <string name="health_sabr_hint">SABR-only pattern detected: YouTube is withholding stream URLs from anonymous clients. Add an account cookie, then try again.</string>
+    <string name="health_retry">TRY AGAIN</string>
+    <string name="health_dismiss">DISMISS</string>
+    <string name="health_diag_title">Client diagnostics</string>
+    <string name="health_diag_body">This test walks the whole InnerTube client ladder and reports which clients still return audio URLs — handy whenever YouTube changes policy again.</string>
+    <string name="health_test_running">TESTING…</string>
+    <string name="health_test_ok">Stream available</string>
+    <string name="health_test_fail">No path returned an audio URL</string>
+    <string name="health_test_extractor">Extractor: %1$s</string>
+    <string name="health_test_extractor_ok">OK · %1$d audio streams · %2$d ms</string>
+    <string name="health_test_extractor_fail">failed</string>
+    <string name="health_test_ladder">Client ladder: audio via %1$s</string>
+    <string name="health_test_ladder_none">no client succeeded</string>
+    <string name="health_test_account">Identity: %1$s</string>
+    <string name="health_test_sabr">SABR-only responses on some clients</string>
+    <string name="health_test_hls">Only HLS available (needs an HLS player)</string>
+    <string name="health_test_recent">Recent history:</string>
+
+    <!-- Player / circuit breaker messages -->
+    <string name="stream_reloading">Reloading stream…</string>
+    <string name="stream_track_skipped">Track skipped (stream unavailable)</string>
+    <string name="stream_retrying">Retrying playback…</string>
+    <string name="stream_tripped_sabr_anonymous">YouTube locked the streams (SABR). Add a YouTube account cookie in Settings to unlock the signed-in path, then try again.</string>
+    <string name="stream_tripped_sabr_logged_in">Streams are still locked even with an account. Try again in a few minutes or refresh the cookie in Settings.</string>
+    <string name="stream_snackbar_action">SETTINGS</string>
 </resources>

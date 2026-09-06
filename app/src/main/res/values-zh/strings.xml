@@ -242,4 +242,61 @@
     <string name="region_america">美洲</string>
     <string name="region_africa">非洲</string>
     <string name="region_arab">阿拉伯</string>
+    <!-- YouTube 账号（Cookie 登录）：在 YouTube 强制 SABR 时打开 extractor 通道 -->
+    <string name="sec_account">YOUTUBE 账号</string>
+    <string name="account_title">登录以打开串流通道</string>
+    <string name="account_body">YouTube 对无身份请求强制使用 SABR 协议，导致所有歌曲同时失败。设置账号 Cookie 可打开 extractor 的 Safari/HLS 通道，终止“串流不可用”循环。</string>
+    <string name="account_status_off">匿名模式 — 未登录</string>
+    <string name="account_status_on">已登录 · 已设置 %1$d 个 Cookie</string>
+    <string name="account_status_disabled">Cookie 已保存，当前停用</string>
+    <string name="account_status_incomplete">Cookie 被拒绝 — 缺少 SAPISID</string>
+    <string name="account_enable_title">使用账号进行串流</string>
+    <string name="account_enable_body">关闭后返回匿名模式，但不删除 Cookie。</string>
+    <string name="account_paste">粘贴 COOKIE</string>
+    <string name="account_import">导入文件</string>
+    <string name="account_remove">删除</string>
+    <string name="account_privacy">Cookie 仅保存在本机，且只发送给 Google — 中间没有 Lyreon 服务器。</string>
+    <string name="account_dialog_title">粘贴 YouTube Cookie</string>
+    <string name="account_dialog_body">在浏览器登录 youtube.com，导出 Cookie（Cookie-Editor 或 Get cookies.txt LOCALLY），然后粘贴到这里。支持 Cookie 头、cookies.txt（Netscape）和 JSON 导出格式。</string>
+    <string name="account_dialog_hint">SAPISID=…; __Secure-1PSID=…; HSID=…</string>
+    <string name="account_saved">账号已设置 — 串流缓存已清除。</string>
+    <string name="account_rejected_empty">内容为空。</string>
+    <string name="account_rejected_format">无法识别格式，请确认包含 YouTube 的 name=value Cookie。</string>
+    <string name="account_rejected_no_sapisid">已拒绝：缺少 SAPISID 的 Cookie 会让所有歌曲失败，因此保持匿名模式。</string>
+    <string name="account_remove_title">删除 YouTube 账号？</string>
+    <string name="account_remove_body">Cookie 将从本机删除，extractor 返回匿名模式。</string>
+    <string name="account_removed">账号已删除 — 返回匿名模式。</string>
+    <string name="account_test">连接测试</string>
+
+    <!-- 串流健康度与客户端诊断 -->
+    <string name="sec_stream_health">串流健康度</string>
+    <string name="health_ok">正常 — 没有连续失败。</string>
+    <string name="health_degraded">不稳定 — 部分歌曲被跳过。</string>
+    <string name="health_tripped">已停止 — 连续失败 %1$d 次。</string>
+    <string name="health_body">连续失败后播放器停止跳歌，只有在确认歌曲真正播放后才恢复。</string>
+    <string name="health_sabr_hint">检测到 SABR-only：YouTube 正在对无身份客户端隐藏串流 URL。请设置账号 Cookie 后重试。</string>
+    <string name="health_retry">重试</string>
+    <string name="health_dismiss">关闭</string>
+    <string name="health_diag_title">客户端诊断</string>
+    <string name="health_diag_body">该测试会遍历整个 InnerTube 客户端阶梯，并报告哪些客户端仍能返回音频 URL — YouTube 再次改政策时很有用。</string>
+    <string name="health_test_running">测试中…</string>
+    <string name="health_test_ok">串流可用</string>
+    <string name="health_test_fail">没有通道返回音频 URL</string>
+    <string name="health_test_extractor">Extractor：%1$s</string>
+    <string name="health_test_extractor_ok">正常 · %1$d 条音频流 · %2$d 毫秒</string>
+    <string name="health_test_extractor_fail">失败</string>
+    <string name="health_test_ladder">客户端阶梯：音频来自 %1$s</string>
+    <string name="health_test_ladder_none">没有客户端成功</string>
+    <string name="health_test_account">身份：%1$s</string>
+    <string name="health_test_sabr">部分客户端返回 SABR-only</string>
+    <string name="health_test_hls">仅 HLS 可用（需要 HLS 播放器）</string>
+    <string name="health_test_recent">最近记录：</string>
+
+    <!-- 播放器消息 -->
+    <string name="stream_reloading">正在重新加载串流…</string>
+    <string name="stream_track_skipped">已跳过该曲目（串流不可用）</string>
+    <string name="stream_retrying">正在重试播放…</string>
+    <string name="stream_tripped_sabr_anonymous">YouTube 锁定了串流（SABR）。请在设置中添加 YouTube 账号 Cookie 以打开登录通道，然后重试。</string>
+    <string name="stream_tripped_sabr_logged_in">即使账号已启用，串流仍被锁定。请几分钟后再试，或在设置中更新 Cookie。</string>
+    <string name="stream_snackbar_action">设置</string>
 </resources>

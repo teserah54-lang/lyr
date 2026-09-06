@@ -242,4 +242,61 @@
     <string name="region_america">अमरीका</string>
     <string name="region_africa">अफ्रीका</string>
     <string name="region_arab">अरब विश्व</string>
+    <!-- YouTube खाता (कुकी लॉगिन): SABR के दौरान एक्सट्रैक्टर का रास्ता खोलता है -->
+    <string name="sec_account">YOUTUBE खाता</string>
+    <string name="account_title">स्ट्रीम खोलने के लिए साइन इन करें</string>
+    <string name="account_body">YouTube बिना पहचान वाले अनुरोधों पर SABR प्रोटोकॉल थोपता है, इसलिए सभी गाने एक साथ विफल हो सकते हैं। खाते की कुकी जोड़ने से एक्सट्रैक्टर में Safari/HLS पथ खुलता है और यह लूप रुकता है।</string>
+    <string name="account_status_off">गुमनाम मोड — कोई खाता नहीं</string>
+    <string name="account_status_on">लॉगिन सक्रिय · %1$d कुकी लगी</string>
+    <string name="account_status_disabled">कुकी सहेजी है, निष्क्रिय</string>
+    <string name="account_status_incomplete">कुकी अस्वीकृत — SAPISID नहीं</string>
+    <string name="account_enable_title">स्ट्रीमिंग के लिए खाता उपयोग करें</string>
+    <string name="account_enable_body">कुकी हटाए बिना गुमनाम मोड में लौटने के लिए बंद करें।</string>
+    <string name="account_paste">कुकी पेस्ट करें</string>
+    <string name="account_import">फ़ाइल आयात करें</string>
+    <string name="account_remove">हटाएँ</string>
+    <string name="account_privacy">कुकी इसी डिवाइस पर रहती है और केवल Google को भेजी जाती है — बीच में कोई Lyreon सर्वर नहीं।</string>
+    <string name="account_dialog_title">YouTube कुकी पेस्ट करें</string>
+    <string name="account_dialog_body">ब्राउज़र में youtube.com पर लॉगिन करें, कुकी निर्यात करें (Cookie-Editor या Get cookies.txt LOCALLY), फिर यहाँ पेस्ट करें। Cookie हेडर, cookies.txt (Netscape) और JSON निर्यात सब स्वीकार हैं।</string>
+    <string name="account_dialog_hint">SAPISID=…; __Secure-1PSID=…; HSID=…</string>
+    <string name="account_saved">खाता लग गया — स्ट्रीम कैश साफ़।</string>
+    <string name="account_rejected_empty">फ़ील्ड खाली है।</string>
+    <string name="account_rejected_format">प्रारूप पहचाना नहीं गया। YouTube कुकी के name=value जोड़े होने चाहिए।</string>
+    <string name="account_rejected_no_sapisid">अस्वीकृत: SAPISID के बिना कुकी। इसे लगाने से सभी गाने विफल होंगे, इसलिए Lyreon गुमनाम मोड में है।</string>
+    <string name="account_remove_title">YouTube खाता हटाएँ?</string>
+    <string name="account_remove_body">कुकी डिवाइस से हट जाएगी और एक्सट्रैक्टर गुमनाम मोड में लौट जाएगा।</string>
+    <string name="account_removed">खाता हटाया गया — गुमनाम मोड में वापस।</string>
+    <string name="account_test">कनेक्शन जाँचें</string>
+
+    <!-- स्ट्रीम स्वास्थ्य और क्लाइंट निदान -->
+    <string name="sec_stream_health">स्ट्रीम स्वास्थ्य</string>
+    <string name="health_ok">सामान्य — कोई लगातार विफलता नहीं।</string>
+    <string name="health_degraded">प्रभावित — कुछ गाने छोड़े गए।</string>
+    <string name="health_tripped">रोका गया — %1$d लगातार विफलताएँ।</string>
+    <string name="health_body">लगातार विफलता के बाद प्लेयर गाने छोड़ना बंद कर देता है और केवल तब जारी रखता है जब गाना वास्तव में बजता है।</string>
+    <string name="health_sabr_hint">SABR-only पैटर्न मिला: YouTube गुमनाम क्लाइंट से स्ट्रीम URL छिपा रहा है। खाते की कुकी लगाकर फिर कोशिश करें।</string>
+    <string name="health_retry">फिर कोशिश करें</string>
+    <string name="health_dismiss">बंद करें</string>
+    <string name="health_diag_title">क्लाइंट निदान</string>
+    <string name="health_diag_body">यह टेस्ट पूरी InnerTube क्लाइंट सीढ़ी आज़माता है और बताता है कि कौन सा क्लाइंट अभी ऑडियो URL दे रहा है।</string>
+    <string name="health_test_running">जाँच जारी…</string>
+    <string name="health_test_ok">स्ट्रीम उपलब्ध</string>
+    <string name="health_test_fail">किसी पथ ने ऑडियो URL नहीं दिया</string>
+    <string name="health_test_extractor">एक्सट्रैक्टर: %1$s</string>
+    <string name="health_test_extractor_ok">ठीक · %1$d ऑडियो स्ट्रीम · %2$d ms</string>
+    <string name="health_test_extractor_fail">विफल</string>
+    <string name="health_test_ladder">क्लाइंट सीढ़ी: %1$s से ऑडियो</string>
+    <string name="health_test_ladder_none">कोई क्लाइंट सफल नहीं</string>
+    <string name="health_test_account">पहचान: %1$s</string>
+    <string name="health_test_sabr">कुछ क्लाइंट पर SABR-only मिला</string>
+    <string name="health_test_hls">केवल HLS उपलब्ध (HLS प्लेयर चाहिए)</string>
+    <string name="health_test_recent">हाल का इतिहास:</string>
+
+    <!-- प्लेयर संदेश -->
+    <string name="stream_reloading">स्ट्रीम फिर लोड हो रही है…</string>
+    <string name="stream_track_skipped">गाना छोड़ा गया (स्ट्रीम उपलब्ध नहीं)</string>
+    <string name="stream_retrying">फिर चलाने की कोशिश…</string>
+    <string name="stream_tripped_sabr_anonymous">YouTube ने स्ट्रीम लॉक कर दी (SABR)। सेटिंग्स में YouTube खाते की कुकी लगाएँ, फिर कोशिश करें।</string>
+    <string name="stream_tripped_sabr_logged_in">खाता सक्रिय होने पर भी स्ट्रीम लॉक है। कुछ मिनट बाद फिर कोशिश करें या कुकी ताज़ा करें।</string>
+    <string name="stream_snackbar_action">सेटिंग्स</string>
 </resources>

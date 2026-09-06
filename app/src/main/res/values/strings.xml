@@ -268,4 +268,61 @@
     <string name="region_america">Amerika</string>
     <string name="region_africa">Afrika</string>
     <string name="region_arab">Arab</string>
+    <!-- Akun YouTube (cookie login): membuka jalur extractor saat YouTube memaksa SABR -->
+    <string name="sec_account">AKUN YOUTUBE</string>
+    <string name="account_title">Login untuk membuka jalur stream</string>
+    <string name="account_body">YouTube memaksa protokol SABR untuk permintaan tanpa identitas, sehingga seluruh lagu bisa gagal sekaligus. Memasang cookie akun membuka jalur Safari/HLS di extractor dan menghentikan loop stream tidak tersedia.</string>
+    <string name="account_status_off">Mode anonim — tanpa akun</string>
+    <string name="account_status_on">Mode login aktif · %1$d cookie terpasang</string>
+    <string name="account_status_disabled">Cookie tersimpan, sedang dinonaktifkan</string>
+    <string name="account_status_incomplete">Cookie ditolak — tanpa SAPISID</string>
+    <string name="account_enable_title">Gunakan akun untuk stream</string>
+    <string name="account_enable_body">Matikan untuk kembali ke mode anonim tanpa menghapus cookie.</string>
+    <string name="account_paste">TEMPEL COOKIE</string>
+    <string name="account_import">IMPOR FILE</string>
+    <string name="account_remove">HAPUS</string>
+    <string name="account_privacy">Cookie hanya disimpan di perangkat ini dan hanya dikirim ke Google — tidak ada server Lyreon di antaranya.</string>
+    <string name="account_dialog_title">Tempel cookie YouTube</string>
+    <string name="account_dialog_body">Login ke youtube.com di browser, ekspor cookie (Cookie-Editor atau Get cookies.txt LOCALLY), lalu tempel di sini. Format header Cookie, cookies.txt (Netscape), dan JSON export semuanya diterima.</string>
+    <string name="account_dialog_hint">SAPISID=…; __Secure-1PSID=…; HSID=…</string>
+    <string name="account_saved">Akun terpasang — cache stream dibersihkan.</string>
+    <string name="account_rejected_empty">Isian kosong.</string>
+    <string name="account_rejected_format">Format tidak dikenali. Pastikan berisi pasangan name=value cookie YouTube.</string>
+    <string name="account_rejected_no_sapisid">Ditolak: cookie tanpa SAPISID. Memaksanya membuat SEMUA lagu gagal, jadi Lyreon tetap di mode anonim.</string>
+    <string name="account_remove_title">Hapus akun YouTube?</string>
+    <string name="account_remove_body">Cookie dihapus dari perangkat dan extractor kembali ke mode anonim.</string>
+    <string name="account_removed">Akun dihapus — kembali ke mode anonim.</string>
+    <string name="account_test">TES KONEKSI</string>
+
+    <!-- Kesehatan stream & diagnostik tangga klien -->
+    <string name="sec_stream_health">KESEHATAN STREAM</string>
+    <string name="health_ok">Normal — tidak ada kegagalan beruntun.</string>
+    <string name="health_degraded">Terganggu — sebagian lagu dilewati.</string>
+    <string name="health_tripped">Dihentikan — %1$d kegagalan beruntun.</string>
+    <string name="health_body">Pemutar berhenti melompati lagu setelah kegagalan beruntun, dan hanya melanjutkan setelah ada bukti lagu benar-benar berbunyi.</string>
+    <string name="health_sabr_hint">Terdeteksi pola SABR-only: YouTube menutup URL stream untuk klien tanpa identitas. Pasang cookie akun lalu coba lagi.</string>
+    <string name="health_retry">COBA LAGI</string>
+    <string name="health_dismiss">TUTUP</string>
+    <string name="health_diag_title">Diagnostik klien</string>
+    <string name="health_diag_body">Tes ini mencoba seluruh tangga klien InnerTube dan melaporkan klien mana yang masih memberi URL audio — berguna tiap kali YouTube mengubah kebijakan.</string>
+    <string name="health_test_running">MENGUJI…</string>
+    <string name="health_test_ok">Stream tersedia</string>
+    <string name="health_test_fail">Tidak ada jalur yang memberi URL audio</string>
+    <string name="health_test_extractor">Extractor: %1$s</string>
+    <string name="health_test_extractor_ok">OK · %1$d stream audio · %2$d ms</string>
+    <string name="health_test_extractor_fail">gagal</string>
+    <string name="health_test_ladder">Tangga klien: audio via %1$s</string>
+    <string name="health_test_ladder_none">tidak ada klien yang berhasil</string>
+    <string name="health_test_account">Identitas: %1$s</string>
+    <string name="health_test_sabr">SABR-only terdeteksi pada sebagian klien</string>
+    <string name="health_test_hls">Hanya HLS yang tersedia (perlu pemutar HLS)</string>
+    <string name="health_test_recent">Riwayat terbaru:</string>
+
+    <!-- Pesan pemutar / circuit breaker -->
+    <string name="stream_reloading">Memuat ulang stream…</string>
+    <string name="stream_track_skipped">Track dilewati (stream tidak tersedia)</string>
+    <string name="stream_retrying">Mencoba memutar ulang…</string>
+    <string name="stream_tripped_sabr_anonymous">Stream dikunci YouTube (SABR). Pasang cookie akun YouTube di Pengaturan untuk membuka jalur login, lalu coba lagi.</string>
+    <string name="stream_tripped_sabr_logged_in">Stream masih terkunci walau akun aktif. Coba beberapa menit lagi atau perbarui cookie di Pengaturan.</string>
+    <string name="stream_snackbar_action">PENGATURAN</string>
 </resources>

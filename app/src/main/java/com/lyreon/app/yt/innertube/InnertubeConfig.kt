@@ -28,6 +28,7 @@ internal object InnertubeConfig {
     @Volatile private var androidVersion: String = FALLBACK_ANDROID_VERSION
     @Volatile private var visitorData: String? = null
     @Volatile private var playerJsUrl: String? = null
+    @Volatile private var signatureTs: Int = 0
 
     private val fetched = ConcurrentHashMap.newKeySet<String>()
 
@@ -54,6 +55,10 @@ internal object InnertubeConfig {
                     ?.groupValues?.getOrNull(1)
                     ?: Regex("src=\"(/s/player/[^\"]+/base\\.js)\"").find(html)?.groupValues?.getOrNull(1)
                     ?: Regex("src=\"(https://www\\.youtube\\.com/s/player/[^\"]+/base\\.js)\"").find(html)?.groupValues?.getOrNull(1)
+                // `STS` di ytcfg = signatureTimestamp. Diperlukan klien yang URL-nya
+                // masih ditandatangani base.js; tanpanya URL kerap langsung 403.
+                signatureTs = Regex("\"STS\"\\s*:\\s*(\\d{4,6})").find(html)
+                    ?.groupValues?.getOrNull(1)?.toIntOrNull() ?: signatureTs
             }
         }.onFailure { e ->
             Log.w(TAG, "ensure() gagal scrape: ${e.message} — pakai nilai cadangan")
@@ -80,6 +85,13 @@ internal object InnertubeConfig {
     }
 
     fun apiKey(): String = apiKey
+
+    /**
+     * signatureTimestamp (`STS`) hasil scrape ytcfg; null bila belum tersedia.
+     * Dikirim sebagai `playbackContext.contentPlaybackContext.signatureTimestamp`
+     * untuk klien yang URL stream-nya masih perlu di-decipher.
+     */
+    fun signatureTimestamp(): Int? = signatureTs.takeIf { it > 0 }
     fun webClientVersion(): String = webVersion
     fun androidClientVersion(): String = androidVersion
     fun visitor(): String? = visitorData

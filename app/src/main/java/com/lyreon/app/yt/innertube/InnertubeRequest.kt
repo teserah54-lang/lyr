@@ -36,39 +36,9 @@ internal object InnertubeRequest {
         return JSONObject().put("context", context).toString()
     }
 
-    /** Endpoint + payload untuk sebuah permintaan player. */
-    fun player(client: Client, version: String, videoId: String, visitorData: String?): Pair<String, Request> {
-        val clientJson = JSONObject()
-            .put("clientName", client.clientName)
-            .put("clientVersion", version)
-            .put("hl", "en")
-            .put("gl", "US")
-        if (client == Client.ANDROID || client == Client.ANDROID_VR || client == Client.ANDROID_TESTSUITE) {
-            clientJson.put("androidSdkVersion", 34)
-            clientJson.put("osName", "Android")
-            clientJson.put("osVersion", "14")
-        }
-        visitorData?.let { clientJson.put("visitorData", it) }
-        val context = JSONObject().put("client", clientJson)
-        if (client.isEmbedded) {
-            context.put("thirdParty", JSONObject().put("embedUrl", "https://www.youtube.com/watch?v=$videoId"))
-        }
-
-        val payload = JSONObject()
-            .put("context", context)
-            .put("videoId", videoId)
-            .put("contentCheckOk", true)
-            .put("racyCheckOk", true)
-            .put(
-                "playbackContext",
-                JSONObject().put(
-                    "contentPlaybackContext",
-                    JSONObject().put("html5Preference", "HTML5_PREF_WANTS"),
-                ),
-            )
-        val url = "https://www.youtube.com/youtubei/v1/player?key=${InnertubeConfig.apiKey()}&prettyPrint=false"
-        return url to build(url, payload.toString(), client)
-    }
+    // Catatan: `player()` gaya lama (satu enum `Client`) sudah dihapus — semua
+    // permintaan player kini lewat [playerFromSpec] + [PlayerClientSpec], sehingga
+    // menambah/mengubah klien cukup dengan mengedit tabel di PlayerClientLadder.
 
     fun search(client: Client, version: String, query: String, params: String?, visitorData: String?): Request {
         val clientJson = JSONObject()
@@ -136,16 +106,22 @@ internal object InnertubeRequest {
     /**
      * Request player untuk satu [PlayerClientSpec].
      *
-     * @param extraHeaders header identitas (Cookie + `Authorization: SAPISIDHASH`)
-     *   dari [com.lyreon.app.yt.YouTubeAccount.authHeaders] — dipasang terakhir
-     *   supaya tidak tertimpa header bawaan klien.
+     * Bentuk request mengikuti yt-dlp master (September 2026):
+     * - `POST https://{host}/youtubei/v1/player?key=…&prettyPrint=false`
+     * - header `X-YouTube-Client-Name`, `X-YouTube-Client-Version`,
+     *   `X-Goog-Visitor-Id`, `Origin`, dan `User-Agent` milik klien
+     * - body `context.client{…}` + `videoId` + `playbackContext.contentPlaybackContext`
+     *   (`html5Preference`, dan `signatureTimestamp` untuk klien yang URL-nya
+     *   masih perlu di-decipher) + `contentCheckOk`/`racyCheckOk`
+     *
+     * Lyreon anonim: TIDAK ada header Cookie/Authorization yang dikirim.
      */
     fun playerFromSpec(
         spec: PlayerClientSpec,
         videoId: String,
         visitorData: String?,
         webVersion: String,
-        extraHeaders: Map<String, String> = emptyMap(),
+        signatureTimestamp: Int? = null,
     ): Request {
         val version = spec.clientVersion.ifBlank { webVersion }
 
@@ -165,11 +141,8 @@ internal object InnertubeRequest {
         client.put("utcOffsetMinutes", 0)
 
         val context = JSONObject().put("client", client)
-        if (spec.embedUrl) {
-            context.put(
-                "thirdParty",
-                JSONObject().put("embedUrl", "https://www.youtube.com/watch?v=$videoId"),
-            )
+        spec.embedUrlValue?.let { embed ->
+            context.put("thirdParty", JSONObject().put("embedUrl", embed))
         }
         context.put(
             "request",
@@ -179,25 +152,30 @@ internal object InnertubeRequest {
         )
         context.put("user", JSONObject().put("lockedSafetyMode", false))
 
+        // `signatureTimestamp` memberi tahu YouTube versi player yang dipakai untuk
+        // menandatangani URL. Tanpa ini, klien yang masih butuh decipher (base.js)
+        // kerap menerima URL yang langsung 403. Klien `needsJsPlayer = false`
+        // (visionos, android_vr) mengirim URL polos sehingga tidak memerlukannya.
+        val playbackContext = JSONObject().put("html5Preference", "HTML5_PREF_WANTS")
+        if (spec.needsJsPlayer && signatureTimestamp != null && signatureTimestamp > 0) {
+            playbackContext.put("signatureTimestamp", signatureTimestamp)
+        }
+
         val payload = JSONObject()
             .put("context", context)
             .put("videoId", videoId)
             .put("cpn", nonce(16))
             .put("contentCheckOk", true)
             .put("racyCheckOk", true)
-            .put(
-                "playbackContext",
-                JSONObject().put(
-                    "contentPlaybackContext",
-                    JSONObject().put("html5Preference", "HTML5_PREF_WANTS"),
-                ),
-            )
+            .put("playbackContext", JSONObject().put("contentPlaybackContext", playbackContext))
 
         val url = if (spec.mobileEndpoint) {
             "https://youtubei.googleapis.com/youtubei/v1/player?prettyPrint=false" +
                 "&t=${nonce(12)}&id=$videoId"
         } else {
-            "https://www.youtube.com/youtubei/v1/player?prettyPrint=false"
+            val key = InnertubeConfig.apiKey()
+            "https://${spec.host}/youtubei/v1/player?prettyPrint=false" +
+                (if (key.isBlank()) "" else "&key=$key")
         }
 
         val builder = Request.Builder()
@@ -207,12 +185,12 @@ internal object InnertubeRequest {
             .header("X-YouTube-Client-Name", spec.clientId)
             .header("X-Youtube-Client-Version", version)
             .header("Accept-Language", "en-US,en;q=0.9")
+            .header("Origin", spec.origin ?: "https://${spec.host}")
+        if (!visitorData.isNullOrBlank()) builder.header("X-Goog-Visitor-Id", visitorData)
         if (spec.mobileEndpoint) {
             builder.header("X-Goog-Api-Format-Version", "2")
         }
-        spec.origin?.let { builder.header("Origin", it) }
         spec.referer?.let { builder.header("Referer", it) }
-        extraHeaders.forEach { (name, value) -> builder.header(name, value) }
 
         return builder.post(payload.toString().toRequestBody(JSON)).build()
     }

@@ -24,19 +24,22 @@ import java.util.concurrent.ConcurrentHashMap
  * Kegagalan resolusi stream yang membawa **alasan**, bukan cuma pesan generik.
  *
  * Dibawa naik sampai `PlayerManager` supaya pesan ke pengguna bisa membedakan
- * "YouTube sedang memaksa SABR (aktifkan akun)" dari "video ini memang
- * diblokir/dihapus" — dua hal yang membutuhkan tindakan berbeda.
+ * "YouTube sedang menutup akses anonim (SABR/poToken)" dari "video ini memang
+ * diblokir/dihapus" — dua hal yang membutuhkan tindakan berbeda. Lyreon anonim
+ * (tanpa cookie), jadi pesan tidak pernah menyuruh pengguna login.
  */
 class StreamUnavailableException(
     message: String,
     /** Setidaknya satu klien membalas data SABR tanpa URL. */
     val sabrOnly: Boolean,
-    /** Hanya `hlsManifestUrl` yang tersedia (butuh pemutar HLS). */
+    /** Hanya `hlsManifestUrl` yang tersedia. */
     val hlsOnly: Boolean,
     /** Alasan `playabilityStatus` terakhir, mis. "LOGIN_REQUIRED: …". */
     val playability: String,
     /** Ringkasan `klien=VERDICT` dari seluruh percobaan. */
     val attempts: List<String>,
+    /** Semua format yang ada terkunci DRM (khas klien TV anonim). */
+    val drmOnly: Boolean = false,
 ) : IOException(message)
 
 /** Satu percobaan klien dalam laporan [InnertubeFallback.probeBlocking]. */
@@ -54,21 +57,27 @@ data class ProbeAttempt(
  */
 data class LadderProbe(
     val videoId: String,
-    val loggedIn: Boolean,
     val usableClient: String?,
     val audioUrlFound: Boolean,
+    /** Klien yang memberi `hlsManifestUrl` (bisa diputar — Lyreon mendukung HLS). */
+    val manifestClient: String?,
     val sabrOnly: Boolean,
     val hlsOnly: Boolean,
+    val drmOnly: Boolean,
     val totalMs: Long,
     val attempts: List<ProbeAttempt>,
 ) {
-    val success: Boolean get() = usableClient != null && audioUrlFound
+    /** Sukses = ada URL audio langsung ATAU manifest HLS yang bisa diputar. */
+    val success: Boolean get() = audioUrlFound || manifestClient != null
 }
 
 class InnertubeFallback {
 
     companion object {
         private const val TAG = "InnertubeFallback"
+
+        /** MIME manifest HLS — dipakai `DefaultMediaSourceFactory` memilih `HlsMediaSource`. */
+        const val HLS_MIME = "application/x-mpegurl"
     }
 
     private val http = LyreonHttp.extractClient
@@ -82,9 +91,8 @@ class InnertubeFallback {
     }
 
     /**
-     * Buang SEMUA cache stream. Wajib dipanggil saat identitas YouTube berubah
-     * (login/logout): URL yang di-resolve sebagai anonim berasal dari klien
-     * berbeda dan tidak bisa dipakai ulang begitu cookie dipasang.
+     * Buang SEMUA cache stream — dipakai tombol "Tes koneksi" dan pemulihan
+     * manual, supaya percobaan berikutnya benar-benar memukul YouTube lagi.
      */
     fun invalidateAll() {
         streamCache.clear()
@@ -100,83 +108,149 @@ class InnertubeFallback {
     // Resolusi stream / player — lewat tangga klien (PlayerClientLadder)
     // ------------------------------------------------------------------
 
-    /** Blocking — aman dipanggil dari thread loader ExoPlayer / service unduhan. */
-    fun resolveAudioBlocking(videoId: String, quality: AudioQuality): ResolvedAudio {
+    /**
+     * Blocking — aman dipanggil dari thread loader ExoPlayer / service unduhan.
+     *
+     * @param allowManifest false untuk unduhan (`DownloadManager` hanya bisa
+     *   menulis file progresif), sehingga manifest HLS tidak pernah dipilih.
+     */
+    fun resolveAudioBlocking(
+        videoId: String,
+        quality: AudioQuality,
+        allowManifest: Boolean = true,
+    ): ResolvedAudio {
         ensureReady()
         val cached = streamCache[videoId]
-        if (cached != null && cached.expiresAtMs - 60_000L > System.currentTimeMillis()) {
+        if (cached != null && cached.expiresAtMs - 60_000L > System.currentTimeMillis() &&
+            (allowManifest || !cached.isManifest)
+        ) {
             return cached
         }
         val lock = locks.getOrPut(videoId) { Any() }
         synchronized(lock) {
-            streamCache[videoId]?.let { return it }
-            val resolved = fetchPlayer(videoId, quality)
-            streamCache[videoId] = resolved
+            streamCache[videoId]?.let { if (allowManifest || !it.isManifest) return it }
+            val resolved = fetchPlayer(videoId, quality, allowManifest)
+            // Manifest tidak di-cache untuk jalur unduhan supaya permintaan
+            // pemutaran berikutnya tetap bisa memakainya dari resolve ulang.
+            if (allowManifest || !resolved.isManifest) streamCache[videoId] = resolved
             return resolved
         }
     }
 
     /**
-     * Turun sepanjang tangga klien sampai ada yang memberi URL audio langsung.
-     * Melempar [StreamUnavailableException] bila semua klien gagal — dengan
-     * alasan yang bisa ditindaklanjuti, bukan pesan kosong.
+     * Turun sepanjang tangga klien sampai ada yang memberi audio yang bisa
+     * diputar — URL langsung lebih dulu, manifest HLS sebagai jalur kedua
+     * (Lyreon memutar HLS lewat `media3-exoplayer-hls`).
+     *
+     * Melempar [StreamUnavailableException] bila semua klien gagal, dengan alasan
+     * yang bisa ditindaklanjuti (SABR-only / DRM / playability) — bukan pesan kosong.
      */
-    private fun fetchPlayer(videoId: String, quality: AudioQuality): ResolvedAudio {
+    private fun fetchPlayer(
+        videoId: String,
+        quality: AudioQuality,
+        allowManifest: Boolean = true,
+    ): ResolvedAudio {
         val visitor = InnertubeConfig.visitor()
         val webVersion = InnertubeConfig.webClientVersion()
-        val authHeaders = com.lyreon.app.yt.YouTubeAccount.authHeaders()
+        val sts = InnertubeConfig.signatureTimestamp()
 
         // Snapshot urutan sekali: cooldown bisa berubah di tengah loop dan kita
-        // ingin satu lintasan yang konsisten.
-        val ladder = PlayerClientLadder.ordered()
+        // ingin satu lintasan yang konsisten. `forPlayback = true` membuang klien
+        // yang butuh poToken — tanpa poToken mereka pasti SABR-only/403.
+        val ladder = PlayerClientLadder.ordered(forPlayback = true)
         val attempts = ArrayList<String>(ladder.size)
         var sawSabr = false
         var sawHls = false
+        var sawDrm = false
         var playability = ""
+        var manifest: ResolvedAudio? = null
+        var manifestClient: String? = null
 
         for (spec in ladder) {
             val startedAt = System.currentTimeMillis()
             val attempt = try {
-                attemptClient(spec, videoId, visitor, webVersion, authHeaders)
+                attemptClient(spec, videoId, visitor, webVersion, sts)
             } catch (e: Exception) {
                 ClientAttempt(ClientVerdict.TRANSPORT_ERROR, null, e.javaClass.simpleName)
             }
 
-            // Klien bisa membalas URL (USABLE) tetapi tanpa format audio yang
-            // bisa dipakai — itu bukan kemenangan, jadi dinilai ulang sebelum
-            // dicatat (agar lastGood tidak menunjuk klien yang tak berguna).
             var verdict = attempt.verdict
             var detail = attempt.detail
             var picked: ResolvedAudio? = null
-            if (verdict == ClientVerdict.USABLE) {
-                val streamingData = attempt.root?.optJSONObject("streamingData")
-                picked = streamingData?.let { pickAudio(it, quality) }
-                if (picked == null) {
-                    verdict = ClientVerdict.NO_STREAMING_DATA
-                    detail = "tanpa format audio yang bisa dipakai"
+            val streamingData = attempt.root?.optJSONObject("streamingData")
+            val hlsUrl = PlayerClientLadder.hlsManifest(attempt.root)
+
+            when (verdict) {
+                ClientVerdict.USABLE -> {
+                    // URL langsung ada. Klien bertanda `preferManifest` URL-nya
+                    // tetap butuh poToken GVS (403 saat di-GET), sedangkan manifest
+                    // HLS-nya tidak — jadi manifest dipilih lebih dulu di sana.
+                    val progressive = streamingData?.let { pickAudio(it, quality) }
+                    picked = when {
+                        spec.preferManifest && hlsUrl != null && allowManifest ->
+                            manifestAudio(videoId, hlsUrl, progressive?.url)
+                        progressive != null -> progressive
+                        hlsUrl != null && allowManifest -> manifestAudio(videoId, hlsUrl, null)
+                        else -> null
+                    }
+                    if (picked == null) {
+                        verdict = ClientVerdict.NO_STREAMING_DATA
+                        detail = "tanpa format audio yang bisa dipakai"
+                    } else if (picked.isManifest) {
+                        detail = "manifest HLS"
+                    }
                 }
+                ClientVerdict.HLS_ONLY -> {
+                    sawHls = true
+                    if (hlsUrl != null && manifest == null && allowManifest) {
+                        manifest = manifestAudio(videoId, hlsUrl, null)
+                        manifestClient = spec.key
+                        detail = "manifest HLS"
+                    }
+                    // Jangan langsung pulang: klien berikutnya mungkin memberi URL
+                    // audio langsung yang lebih hemat kuota daripada HLS muxed.
+                }
+                ClientVerdict.SABR_ONLY -> sawSabr = true
+                ClientVerdict.DRM_ONLY -> {
+                    sawDrm = true
+                    if (hlsUrl != null && manifest == null && allowManifest) {
+                        manifest = manifestAudio(videoId, hlsUrl, null)
+                        manifestClient = spec.key
+                    }
+                }
+                ClientVerdict.PLAYABILITY_BLOCKED -> playability = detail
+                else -> Unit
             }
 
             val elapsed = System.currentTimeMillis() - startedAt
             attempts += "${spec.key}=${verdict.name}"
-            if (verdict == ClientVerdict.PLAYABILITY_BLOCKED) playability = detail
-            when (verdict) {
-                ClientVerdict.SABR_ONLY -> sawSabr = true
-                ClientVerdict.HLS_ONLY -> sawHls = true
-                else -> Unit
-            }
             PlayerClientLadder.note(spec.key, verdict, elapsed, detail)
 
             if (picked != null) {
-                PlayerClientLadder.push("audio OK via '${spec.key}' (${elapsed}ms)")
-                Log.i(TAG, "resolve $videoId OK via klien '${spec.key}' dalam ${elapsed}ms")
+                PlayerClientLadder.push(
+                    "audio OK via '${spec.key}' (${elapsed}ms)" +
+                        if (picked.isManifest) " · HLS" else "",
+                )
+                Log.i(
+                    TAG,
+                    "resolve $videoId OK via klien '${spec.key}' dalam ${elapsed}ms" +
+                        if (picked.isManifest) " (manifest HLS)" else "",
+                )
                 return picked
             }
         }
 
+        // Tidak ada URL langsung, tetapi ada manifest HLS → tetap bisa diputar.
+        manifest?.let { m ->
+            PlayerClientLadder.push("audio OK via '$manifestClient' · manifest HLS (jalur kedua)")
+            Log.i(TAG, "resolve $videoId lewat manifest HLS dari klien '$manifestClient'")
+            return m
+        }
+
         val reason = buildString {
-            append("InnerTube: tidak ada klien yang memberi stream audio untuk $videoId")
+            append("InnerTube: tidak ada klien anonim yang memberi stream audio untuk $videoId")
             if (sawSabr) append(" · SABR-only terdeteksi")
+            if (sawDrm) append(" · format DRM")
             if (sawHls) append(" · hanya HLS")
             if (playability.isNotBlank()) append(" · $playability")
         }
@@ -187,8 +261,32 @@ class InnertubeFallback {
             hlsOnly = sawHls,
             playability = playability,
             attempts = attempts,
+            drmOnly = sawDrm,
         )
     }
+
+    /**
+     * Manifest HLS sebagai [ResolvedAudio]. `media3-exoplayer-hls` memutarnya;
+     * `PlayerManager` menukar `MediaItem` ke URL ini + mimeType m3u8.
+     *
+     * @param progressiveFallback URL audio langsung (bila ada) sebagai cadangan
+     *   saat manifest kedaluwarsa — dipakai `ResolvingDataSource` seperti
+     *   kandidat format kedua.
+     */
+    private fun manifestAudio(
+        videoId: String,
+        hlsUrl: String,
+        progressiveFallback: String?,
+    ): ResolvedAudio = ResolvedAudio(
+        videoId = videoId,
+        url = hlsUrl,
+        mimeType = HLS_MIME,
+        suffix = "m3u8",
+        bitrateKbps = 0,
+        expiresAtMs = parseExpire(hlsUrl),
+        fallbackUrl = progressiveFallback?.takeUnless { it.isBlank() || it == hlsUrl },
+        isManifest = true,
+    )
 
     private class ClientAttempt(
         val verdict: ClientVerdict,
@@ -201,9 +299,9 @@ class InnertubeFallback {
         videoId: String,
         visitor: String?,
         webVersion: String,
-        authHeaders: Map<String, String>,
+        sts: Int?,
     ): ClientAttempt {
-        val request = InnertubeRequest.playerFromSpec(spec, videoId, visitor, webVersion, authHeaders)
+        val request = InnertubeRequest.playerFromSpec(spec, videoId, visitor, webVersion, sts)
         val body = http.newCall(request).execute().use { resp ->
             if (!resp.isSuccessful) {
                 return ClientAttempt(ClientVerdict.TRANSPORT_ERROR, null, "HTTP ${resp.code}")
@@ -232,47 +330,61 @@ class InnertubeFallback {
         val startedAt = System.currentTimeMillis()
         val visitor = InnertubeConfig.visitor()
         val webVersion = InnertubeConfig.webClientVersion()
-        val authHeaders = com.lyreon.app.yt.YouTubeAccount.authHeaders()
+        val sts = InnertubeConfig.signatureTimestamp()
 
-        val ladder = PlayerClientLadder.ordered()
+        // Diagnostik menjalankan SELURUH klien (termasuk yang butuh poToken dan
+        // yang sudah mati) supaya pergeseran kebijakan YouTube terlihat.
+        val ladder = PlayerClientLadder.ordered(forPlayback = false)
         val attempts = ArrayList<ProbeAttempt>(ladder.size)
         var usableClient: String? = null
+        var manifestClient: String? = null
         var audioFound = false
         var sawSabr = false
         var sawHls = false
+        var sawDrm = false
 
         for (spec in ladder) {
             val clientStartedAt = System.currentTimeMillis()
             val attempt = try {
-                attemptClient(spec, videoId, visitor, webVersion, authHeaders)
+                attemptClient(spec, videoId, visitor, webVersion, sts)
             } catch (e: Exception) {
                 ClientAttempt(ClientVerdict.TRANSPORT_ERROR, null, e.javaClass.simpleName)
             }
             val elapsed = System.currentTimeMillis() - clientStartedAt
-            attempts += ProbeAttempt(spec.key, attempt.verdict.name, elapsed, attempt.detail)
-            PlayerClientLadder.note(spec.key, attempt.verdict, elapsed, attempt.detail)
+            val hlsUrl = PlayerClientLadder.hlsManifest(attempt.root)
+            var detail = attempt.detail
+            if (hlsUrl != null && attempt.verdict != ClientVerdict.USABLE) detail = "manifest HLS ada"
+            attempts += ProbeAttempt(spec.key, attempt.verdict.name, elapsed, detail)
+            PlayerClientLadder.note(spec.key, attempt.verdict, elapsed, detail)
 
             when (attempt.verdict) {
                 ClientVerdict.SABR_ONLY -> sawSabr = true
-                ClientVerdict.HLS_ONLY -> sawHls = true
+                ClientVerdict.DRM_ONLY -> sawDrm = true
+                ClientVerdict.HLS_ONLY -> {
+                    sawHls = true
+                    if (hlsUrl != null) manifestClient = manifestClient ?: spec.key
+                }
                 ClientVerdict.USABLE -> {
                     usableClient = usableClient ?: spec.key
                     val streamingData = attempt.root?.optJSONObject("streamingData")
                     if (streamingData != null && pickAudio(streamingData, quality) != null) {
                         audioFound = true
                     }
+                    if (hlsUrl != null) manifestClient = manifestClient ?: spec.key
                 }
                 else -> Unit
             }
+            if (hlsUrl != null) sawHls = true
         }
 
         return LadderProbe(
             videoId = videoId,
-            loggedIn = com.lyreon.app.yt.YouTubeAccount.isLoggedIn,
             usableClient = usableClient,
             audioUrlFound = audioFound,
+            manifestClient = manifestClient,
             sabrOnly = sawSabr,
             hlsOnly = sawHls,
+            drmOnly = sawDrm,
             totalMs = System.currentTimeMillis() - startedAt,
             attempts = attempts,
         )
@@ -289,6 +401,8 @@ class InnertubeFallback {
             val f = formats.optJSONObject(i) ?: continue
             val mime = f.optString("mimeType").orEmpty()
             if (!mime.startsWith("audio/")) continue
+            // Format ber-DRM tidak bisa diputar tanpa lisensi Widevine.
+            if (PlayerClientLadder.isDrmLocked(f)) continue
             var url = f.optString("url").orEmpty()
             if (url.isBlank()) {
                 val cipher = f.optString("signatureCipher").ifBlank { f.optString("cipher") }

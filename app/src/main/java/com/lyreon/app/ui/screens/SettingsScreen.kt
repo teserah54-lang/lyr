@@ -24,7 +24,6 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -155,10 +154,6 @@ fun SettingsScreen(
                     onChange = vm::setReduceMotion,
                 )
             }
-        }
-
-        item {
-            AccountSection(vm)
         }
 
         item {
@@ -698,229 +693,15 @@ private fun findActivity(context: android.content.Context): android.app.Activity
 }
 
 // ======================================================================
-// Akun YouTube (cookie login)
+// Kesehatan stream & diagnostik tangga klien
 //
-// Ini bukan "fitur akun" biasa: sejak YouTube memaksa SABR untuk permintaan
-// tanpa identitas, extractor hanya bisa mengambil URL stream lewat jalur
-// login (Safari/HLS). Bagian inilah yang memanggil
-// `ServiceList.YouTube.setTokens(cookie)` — sebelumnya tidak pernah dipanggil
-// dari kode app sama sekali.
+// Lyreon ANONIM (tanpa cookie akun): yang bisa ditindaklanjuti pengguna saat
+// YouTube menutup klien adalah melihat klien mana yang masih hidup, menyalin
+// laporannya, dan mereset cache stream. Semua itu ada di bagian ini.
 // ======================================================================
 
 @Composable
-private fun AccountSection(vm: SettingsViewModel) {
-    val account by vm.account.collectAsStateWithLifecycle()
-    val result by vm.accountResult.collectAsStateWithLifecycle()
-    val context = LocalContext.current
-
-    var showPaste by remember { mutableStateOf(false) }
-    var showRemove by remember { mutableStateOf(false) }
-    var localMessage by remember { mutableStateOf<String?>(null) }
-
-    val importLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
-        contract = androidx.activity.result.contract.ActivityResultContracts.OpenDocument(),
-    ) { uri ->
-        if (uri != null) {
-            val text = runCatching {
-                context.contentResolver.openInputStream(uri)
-                    ?.use { input -> input.readBytes().toString(Charsets.UTF_8) }
-            }.getOrNull().orEmpty()
-            if (text.isNotBlank()) vm.saveCookie(text)
-        }
-    }
-
-    LaunchedEffect(result) {
-        val outcome = result ?: return@LaunchedEffect
-        localMessage = when (outcome) {
-            com.lyreon.app.data.settings.AccountSaveResult.SAVED ->
-                context.getString(R.string.account_saved)
-            com.lyreon.app.data.settings.AccountSaveResult.EMPTY ->
-                context.getString(R.string.account_rejected_empty)
-            com.lyreon.app.data.settings.AccountSaveResult.UNRECOGNIZED ->
-                context.getString(R.string.account_rejected_format)
-            com.lyreon.app.data.settings.AccountSaveResult.NO_SAPISID ->
-                context.getString(R.string.account_rejected_no_sapisid)
-        }
-        vm.consumeAccountResult()
-    }
-
-    SettingSection(stringResource(R.string.sec_account)) {
-        Text(
-            stringResource(R.string.account_title),
-            style = MaterialTheme.typography.titleSmall,
-            color = LyreonTextPrimary,
-        )
-        Spacer(Modifier.height(6.dp))
-        Text(
-            stringResource(R.string.account_body),
-            style = MaterialTheme.typography.bodySmall,
-            color = LyreonTextMuted,
-        )
-        Spacer(Modifier.height(12.dp))
-
-        val statusText = when {
-            account.active -> stringResource(R.string.account_status_on, account.cookieCount)
-            account.cookieHeader.isNotBlank() && !account.hasSapisid ->
-                stringResource(R.string.account_status_incomplete)
-            account.cookieHeader.isNotBlank() -> stringResource(R.string.account_status_disabled)
-            else -> stringResource(R.string.account_status_off)
-        }
-        val statusColor = when {
-            account.active -> LyreonCrimson
-            account.cookieHeader.isBlank() -> LyreonTextSecondary
-            else -> LyreonTextSecondary
-        }
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .border(1.dp, LyreonLine)
-                .background(LyreonSurface.copy(alpha = 0.3f))
-                .padding(14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                statusText,
-                style = MaterialTheme.typography.labelMedium,
-                color = statusColor,
-                modifier = Modifier.weight(1f),
-            )
-        }
-
-        if (account.cookieHeader.isNotBlank()) {
-            Spacer(Modifier.height(12.dp))
-            ToggleRow(
-                title = stringResource(R.string.account_enable_title),
-                body = stringResource(R.string.account_enable_body),
-                checked = account.enabled,
-                onChange = vm::setAccountEnabled,
-            )
-        }
-
-        Spacer(Modifier.height(12.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            AccountButton(stringResource(R.string.account_paste)) { showPaste = true }
-            AccountButton(stringResource(R.string.account_import)) {
-                runCatching {
-                    importLauncher.launch(arrayOf("text/*", "application/json", "application/octet-stream"))
-                }
-            }
-            if (account.cookieHeader.isNotBlank()) {
-                AccountButton(stringResource(R.string.account_remove), accent = true) { showRemove = true }
-            }
-        }
-
-        localMessage?.let { message ->
-            Spacer(Modifier.height(10.dp))
-            Text(message, style = MaterialTheme.typography.bodySmall, color = LyreonTextSecondary)
-        }
-
-        Spacer(Modifier.height(10.dp))
-        Text(
-            stringResource(R.string.account_privacy),
-            style = MaterialTheme.typography.labelSmall,
-            color = LyreonTextMuted,
-        )
-    }
-
-    if (showPaste) {
-        var draft by remember { mutableStateOf("") }
-        androidx.compose.material3.AlertDialog(
-            onDismissRequest = { showPaste = false },
-            containerColor = com.lyreon.app.ui.theme.LyreonElevated,
-            title = {
-                Text(
-                    stringResource(R.string.account_dialog_title),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = LyreonCrimson,
-                )
-            },
-            text = {
-                Column {
-                    Text(
-                        stringResource(R.string.account_dialog_body),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = LyreonTextSecondary,
-                    )
-                    Spacer(Modifier.height(10.dp))
-                    androidx.compose.material3.OutlinedTextField(
-                        value = draft,
-                        onValueChange = { draft = it },
-                        minLines = 4,
-                        maxLines = 10,
-                        placeholder = {
-                            Text(
-                                stringResource(R.string.account_dialog_hint),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = LyreonTextMuted,
-                            )
-                        },
-                        colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = LyreonCrimson,
-                            unfocusedBorderColor = LyreonLine,
-                            cursorColor = LyreonTextPrimary,
-                            focusedTextColor = LyreonTextPrimary,
-                            unfocusedTextColor = LyreonTextPrimary,
-                        ),
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-            },
-            confirmButton = {
-                androidx.compose.material3.TextButton(onClick = {
-                    if (draft.isNotBlank()) {
-                        vm.saveCookie(draft)
-                        showPaste = false
-                    }
-                }) {
-                    Text(stringResource(R.string.action_save), style = MaterialTheme.typography.labelMedium, color = LyreonCrimson)
-                }
-            },
-            dismissButton = {
-                androidx.compose.material3.TextButton(onClick = { showPaste = false }) {
-                    Text(stringResource(R.string.action_cancel), style = MaterialTheme.typography.labelMedium, color = LyreonTextSecondary)
-                }
-            },
-        )
-    }
-
-    if (showRemove) {
-        androidx.compose.material3.AlertDialog(
-            onDismissRequest = { showRemove = false },
-            containerColor = com.lyreon.app.ui.theme.LyreonElevated,
-            title = {
-                Text(
-                    stringResource(R.string.account_remove_title),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = LyreonCrimson,
-                )
-            },
-            text = {
-                Text(
-                    stringResource(R.string.account_remove_body),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = LyreonTextSecondary,
-                )
-            },
-            confirmButton = {
-                androidx.compose.material3.TextButton(onClick = {
-                    vm.clearAccount()
-                    localMessage = context.getString(R.string.account_removed)
-                    showRemove = false
-                }) {
-                    Text(stringResource(R.string.action_delete), style = MaterialTheme.typography.labelMedium, color = LyreonCrimson)
-                }
-            },
-            dismissButton = {
-                androidx.compose.material3.TextButton(onClick = { showRemove = false }) {
-                    Text(stringResource(R.string.action_cancel), style = MaterialTheme.typography.labelMedium, color = LyreonTextSecondary)
-                }
-            },
-        )
-    }
-}
-
-@Composable
-private fun AccountButton(
+private fun HealthButton(
     label: String,
     accent: Boolean = false,
     onClick: () -> Unit,
@@ -949,6 +730,8 @@ private fun StreamHealthSection(vm: SettingsViewModel) {
     val health by vm.health.collectAsStateWithLifecycle()
     val probe by vm.probe.collectAsStateWithLifecycle()
     val running by vm.probeRunning.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
 
     SettingSection(stringResource(R.string.sec_stream_health)) {
         val levelLabel = when (health.level) {
@@ -975,8 +758,8 @@ private fun StreamHealthSection(vm: SettingsViewModel) {
         if (health.level != com.lyreon.app.player.StreamHealthLevel.OK) {
             Spacer(Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                AccountButton(stringResource(R.string.health_retry), accent = true) { vm.retryStream() }
-                AccountButton(stringResource(R.string.health_dismiss)) { vm.dismissHealthAlert() }
+                HealthButton(stringResource(R.string.health_retry), accent = true) { vm.retryStream() }
+                HealthButton(stringResource(R.string.health_dismiss)) { vm.dismissHealthAlert() }
             }
         }
 
@@ -997,9 +780,22 @@ private fun StreamHealthSection(vm: SettingsViewModel) {
             color = LyreonTextMuted,
         )
         Spacer(Modifier.height(10.dp))
-        AccountButton(
-            if (running) stringResource(R.string.health_test_running) else stringResource(R.string.account_test),
+        HealthButton(
+            if (running) stringResource(R.string.health_test_running) else stringResource(R.string.health_test),
         ) { vm.runStreamTest(null) }
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            HealthButton(stringResource(R.string.health_copy)) {
+                val text = vm.diagnosticsReport()
+                clipboard.setText(androidx.compose.ui.text.AnnotatedString(text))
+                android.widget.Toast.makeText(
+                    context,
+                    context.getString(R.string.health_copied),
+                    android.widget.Toast.LENGTH_SHORT,
+                ).show()
+            }
+            HealthButton(stringResource(R.string.health_reset)) { vm.resetStreaming() }
+        }
 
         probe?.let { report ->
             Spacer(Modifier.height(12.dp))
@@ -1037,11 +833,18 @@ private fun StreamHealthSection(vm: SettingsViewModel) {
                             ?: stringResource(R.string.health_test_ladder_none),
                     ),
                 )
-                DiagLine(stringResource(R.string.health_test_account, if (report.loggedIn) "login" else "anonim"))
+                // Jalur HLS: manifest bisa diputar Lyreon, jadi ini kabar baik
+                // (bukan kegagalan) selama tidak ada URL audio langsung.
+                report.ladder.manifestClient?.let { client ->
+                    DiagLine(stringResource(R.string.health_test_manifest, client))
+                }
                 if (report.ladder.sabrOnly) {
                     DiagLine(stringResource(R.string.health_test_sabr))
                 }
-                if (report.ladder.hlsOnly) {
+                if (report.ladder.drmOnly) {
+                    DiagLine(stringResource(R.string.health_test_drm))
+                }
+                if (report.ladder.hlsOnly && report.ladder.manifestClient == null) {
                     DiagLine(stringResource(R.string.health_test_hls))
                 }
                 Spacer(Modifier.height(8.dp))

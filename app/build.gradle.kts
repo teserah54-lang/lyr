@@ -123,6 +123,10 @@ dependencies {
     implementation("androidx.media3:media3-session:$media3")
     implementation("androidx.media3:media3-ui:$media3")
     implementation("androidx.media3:media3-datasource-okhttp:$media3")
+    // HLS (m3u8): jalur putar anonim yang tidak menuntut poToken GVS. Tanpa modul
+    // ini DefaultMediaSourceFactory tidak bisa membuat HlsMediaSource dan manifest
+    // HLS dari klien web_safari/tv_simply gagal diendus sebagai audio progresif.
+    implementation("androidx.media3:media3-exoplayer-hls:$media3")
 
     // --- YouTube extractor (search, saran, metadata, audio stream) ---
     // Upstream TeamNewPipe/NewPipeExtractor v0.25+ tidak lagi ter-publish

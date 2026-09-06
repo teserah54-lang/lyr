@@ -113,7 +113,9 @@ class LyreonDownloadManager(
     private class CancelledDownload : IOException()
 
     private suspend fun downloadTrack(entry: DownloadEntity): File = withContext(Dispatchers.IO) {
-        val resolved = locator.youtube.resolveCachedBlocking(entry.videoId)
+        // Unduhan menulis satu file: manifest HLS tidak bisa diunduh lewat jalur ini,
+        // jadi hanya stream progresif yang diterima (allowManifest = false).
+        val resolved = locator.youtube.resolveCachedBlocking(entry.videoId, allowManifest = false)
         val suffix = resolved.suffix.ifBlank { "m4a" }
         val outFile = File(downloadsDir, "${entry.videoId}.$suffix")
         // hapus varian lama dengan ekstensi berbeda

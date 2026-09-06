@@ -741,54 +741,14 @@ class SettingsViewModel(private val locator: ServiceLocator) : ViewModel() {
     val settings = locator.settings.settings
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), com.lyreon.app.data.settings.LyreonSettings())
 
-    /** Status identitas YouTube (cookie akun). */
-    val account = locator.account.state
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), com.lyreon.app.data.settings.AccountState.EMPTY)
-
     /** Kondisi jalur stream dari PlayerManager (OK / DEGRADED / TRIPPED). */
     val health = locator.player.health
-
-    private val _accountResult =
-        MutableStateFlow<com.lyreon.app.data.settings.AccountSaveResult?>(null)
-    val accountResult: StateFlow<com.lyreon.app.data.settings.AccountSaveResult?> =
-        _accountResult.asStateFlow()
 
     private val _probe = MutableStateFlow<YouTubeRepository.StreamProbe?>(null)
     val probe: StateFlow<YouTubeRepository.StreamProbe?> = _probe.asStateFlow()
 
     private val _probeRunning = MutableStateFlow(false)
     val probeRunning: StateFlow<Boolean> = _probeRunning.asStateFlow()
-
-    /** Simpan cookie akun → langsung dipasang ke extractor + cache stream dibuang. */
-    fun saveCookie(raw: String) {
-        viewModelScope.launch {
-            val result = locator.account.save(raw)
-            _accountResult.value = result
-            if (result == com.lyreon.app.data.settings.AccountSaveResult.SAVED) {
-                locator.youtube.invalidateAll()
-            }
-        }
-    }
-
-    fun setAccountEnabled(enabled: Boolean) {
-        viewModelScope.launch {
-            locator.account.setEnabled(enabled)
-            locator.youtube.invalidateAll()
-        }
-    }
-
-    fun clearAccount() {
-        viewModelScope.launch {
-            locator.account.clear()
-            locator.youtube.invalidateAll()
-            _accountResult.value = null
-            _probe.value = null
-        }
-    }
-
-    fun consumeAccountResult() {
-        _accountResult.value = null
-    }
 
     /**
      * Uji seluruh jalur resolusi untuk satu video (link atau ID boleh) dan
@@ -809,6 +769,59 @@ class SettingsViewModel(private val locator: ServiceLocator) : ViewModel() {
     fun retryStream() = locator.player.retryAfterFix()
 
     fun dismissHealthAlert() = locator.player.dismissHealthAlert()
+
+    /** Buang cache URL stream + riwayat diagnostik, lalu coba putar ulang. */
+    fun resetStreaming() {
+        locator.youtube.invalidateAll()
+        com.lyreon.app.yt.innertube.PlayerClientLadder.reset()
+        _probe.value = null
+        retryStream()
+    }
+
+    /**
+     * Laporan diagnostik lengkap sebagai teks — untuk tombol "SALIN" di layar
+     * Kesehatan Stream, supaya pengguna bisa menempelkannya ke laporan bug tanpa
+     * perlu logcat. Tidak memuat data pribadi apa pun (Lyreon anonim).
+     */
+    fun diagnosticsReport(): String {
+        val probe = _probe.value
+        val health = locator.player.health.value
+        return buildString {
+            // BuildConfig tidak diaktifkan di modul ini, jadi identitas app cukup
+            // dari SDK_INT + versi rilis yang dibaca runtime.
+            append("Lyreon (Android ").append(android.os.Build.VERSION.RELEASE)
+            append(", SDK ").append(android.os.Build.VERSION.SDK_INT).append(")\n")
+            append("health: ").append(health.level.name)
+            append(" failures=").append(health.consecutiveFailures)
+            append(" skips=").append(health.skipsInWindow)
+            append(" sabr=").append(health.sabrSuspected).append('\n')
+            append(com.lyreon.app.yt.innertube.PlayerClientLadder.snapshot())
+            if (probe != null) {
+                append("probe: ").append(probe.videoId)
+                append(" extractorOk=").append(probe.extractorOk)
+                append(" streams=").append(probe.extractorAudioStreams)
+                append(" ").append(probe.extractorMs).append("ms\n")
+                if (probe.extractorError.isNotBlank()) {
+                    append("  extractorError: ").append(probe.extractorError).append('\n')
+                }
+                append("  ladder ").append(probe.ladder.totalMs).append("ms")
+                append(" audio=").append(probe.ladder.audioUrlFound)
+                append(" hls=").append(probe.ladder.manifestClient ?: "-")
+                append(" sabr=").append(probe.ladder.sabrOnly)
+                append(" drm=").append(probe.ladder.drmOnly).append('\n')
+                probe.ladder.attempts.forEach { a ->
+                    append("   ").append(a.client).append(" → ").append(a.verdict)
+                    append(" (").append(a.elapsedMs).append("ms)")
+                    if (a.detail.isNotBlank()) append(" · ").append(a.detail)
+                    append('\n')
+                }
+            }
+            append("riwayat:\n")
+            com.lyreon.app.yt.innertube.PlayerClientLadder.report().forEach {
+                append("  ").append(it).append('\n')
+            }
+        }
+    }
 
     fun setTheme(mode: com.lyreon.app.ui.theme.ThemeMode) {
         viewModelScope.launch { locator.settings.setThemeMode(mode) }

@@ -242,39 +242,13 @@
     <string name="region_america">アメリカ</string>
     <string name="region_africa">アフリカ</string>
     <string name="region_arab">アラブ世界</string>
-    <!-- YouTube アカウント（Cookie ログイン）: SABR 強制時にエクストラクタの経路を開く -->
-    <string name="sec_account">YOUTUBE アカウント</string>
-    <string name="account_title">ログインしてストリームの経路を開く</string>
-    <string name="account_body">YouTube は身元のないリクエストに SABR を強制するため、全曲が同時に失敗することがあります。アカウントの Cookie を設定するとエクストラクタの Safari/HLS 経路が開き、ループが止まります。</string>
-    <string name="account_status_off">匿名モード — アカウントなし</string>
-    <string name="account_status_on">ログイン中 · Cookie %1$d 件</string>
-    <string name="account_status_disabled">Cookie 保存済み・無効化中</string>
-    <string name="account_status_incomplete">Cookie を拒否 — SAPISID なし</string>
-    <string name="account_enable_title">ストリームにアカウントを使う</string>
-    <string name="account_enable_body">オフにすると Cookie を消さずに匿名モードへ戻ります。</string>
-    <string name="account_paste">COOKIE を貼り付け</string>
-    <string name="account_import">ファイルを読み込む</string>
-    <string name="account_remove">削除</string>
-    <string name="account_privacy">Cookie はこの端末にのみ保存され、送信先は Google だけです。Lyreon のサーバーは経由しません。</string>
-    <string name="account_dialog_title">YouTube の Cookie を貼り付け</string>
-    <string name="account_dialog_body">ブラウザで youtube.com にログインし、Cookie を書き出して（Cookie-Editor や Get cookies.txt LOCALLY）ここに貼り付けてください。Cookie ヘッダー、cookies.txt（Netscape）、JSON 書き出しのいずれも受け付けます。</string>
-    <string name="account_dialog_hint">SAPISID=…; __Secure-1PSID=…; HSID=…</string>
-    <string name="account_saved">アカウントを設定しました — ストリームキャッシュを消去。</string>
-    <string name="account_rejected_empty">入力が空です。</string>
-    <string name="account_rejected_format">形式を認識できません。YouTube の name=value 形式の Cookie が必要です。</string>
-    <string name="account_rejected_no_sapisid">拒否しました: SAPISID のない Cookie です。適用すると全曲が失敗するため、匿名モードのままにします。</string>
-    <string name="account_remove_title">YouTube アカウントを削除しますか？</string>
-    <string name="account_remove_body">Cookie が端末から削除され、エクストラクタは匿名モードに戻ります。</string>
-    <string name="account_removed">アカウントを削除しました — 匿名モードに戻りました。</string>
-    <string name="account_test">接続テスト</string>
-
     <!-- ストリーム健全性とクライアント診断 -->
     <string name="sec_stream_health">ストリームの状態</string>
     <string name="health_ok">正常 — 連続した失敗はありません。</string>
     <string name="health_degraded">不安定 — 一部の曲をスキップしました。</string>
     <string name="health_tripped">停止中 — 連続 %1$d 回の失敗。</string>
     <string name="health_body">失敗が続くとプレイヤーはスキップを止め、実際に再生が進んだ証拠があるまで再開しません。</string>
-    <string name="health_sabr_hint">SABR-only の兆候: YouTube が匿名クライアントにストリーム URL を返していません。アカウント Cookie を設定して再試行してください。</string>
+    <string name="health_sabr_hint">SABR/DRM の兆候: YouTube が匿名クライアントにストリーム URL を返していません。Lyreon はアカウントを使いません — しばらくしてから再試行するか、続く場合はアプリを更新してください。</string>
     <string name="health_retry">再試行</string>
     <string name="health_dismiss">閉じる</string>
     <string name="health_diag_title">クライアント診断</string>
@@ -287,7 +261,12 @@
     <string name="health_test_extractor_fail">失敗</string>
     <string name="health_test_ladder">クライアント階梯: %1$s から音声</string>
     <string name="health_test_ladder_none">成功したクライアントなし</string>
-    <string name="health_test_account">身元: %1$s</string>
+    <string name="health_test">接続テスト</string>
+    <string name="health_copy">診断をコピー</string>
+    <string name="health_copied">診断をクリップボードにコピーしました</string>
+    <string name="health_reset">ストリームキャッシュをリセット</string>
+    <string name="health_test_manifest">%1$s 経由で HLS マニフェストあり（再生可能）</string>
+    <string name="health_test_drm">一部のクライアントは DRM 保護フォーマットを返しました（YouTube のゲストセッションが必要）</string>
     <string name="health_test_sabr">一部クライアントで SABR-only を検出</string>
     <string name="health_test_hls">HLS のみ利用可能（HLS プレーヤーが必要）</string>
     <string name="health_test_recent">最近の履歴:</string>
@@ -296,7 +275,6 @@
     <string name="stream_reloading">ストリームを再読み込み中…</string>
     <string name="stream_track_skipped">曲をスキップしました（ストリーム利用不可）</string>
     <string name="stream_retrying">再生を再試行中…</string>
-    <string name="stream_tripped_sabr_anonymous">YouTube がストリームをロックしています（SABR）。設定で YouTube アカウントの Cookie を追加し、ログイン経路を開いてから再試行してください。</string>
-    <string name="stream_tripped_sabr_logged_in">アカウント有効でもストリームがロックされたままです。数分後に再試行するか、設定で Cookie を更新してください。</string>
+    <string name="stream_tripped_sabr_anonymous">YouTube が匿名再生のストリームをロックしています（SABR/poToken）。キューは保持されます — 数分後に再試行するか、設定 → ストリームの状態で有効なクライアントを確認してください。</string>
     <string name="stream_snackbar_action">設定</string>
 </resources>

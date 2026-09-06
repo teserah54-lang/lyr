@@ -242,39 +242,13 @@
     <string name="region_america">Amerika</string>
     <string name="region_africa">Afrika</string>
     <string name="region_arab">Dunia Arab</string>
-    <!-- Akaun YouTube (log masuk kuki): membuka laluan pengekstrak apabila YouTube memaksa SABR -->
-    <string name="sec_account">AKAUN YOUTUBE</string>
-    <string name="account_title">Log masuk untuk membuka laluan strim</string>
-    <string name="account_body">YouTube memaksa protokol SABR bagi permintaan tanpa identiti, jadi semua lagu boleh gagal serentak. Memasang kuki akaun membuka laluan Safari/HLS dalam pengekstrak dan menghentikan gelung strim tidak tersedia.</string>
-    <string name="account_status_off">Mod tanpa nama — tiada akaun</string>
-    <string name="account_status_on">Log masuk aktif · %1$d kuki dipasang</string>
-    <string name="account_status_disabled">Kuki disimpan, dinyahaktifkan</string>
-    <string name="account_status_incomplete">Kuki ditolak — tiada SAPISID</string>
-    <string name="account_enable_title">Guna akaun untuk strim</string>
-    <string name="account_enable_body">Matikan untuk kembali ke mod tanpa nama tanpa memadam kuki.</string>
-    <string name="account_paste">TAMPAL KUKI</string>
-    <string name="account_import">IMPORT FAIL</string>
-    <string name="account_remove">BUANG</string>
-    <string name="account_privacy">Kuki hanya disimpan pada peranti ini dan hanya dihantar ke Google — tiada pelayan Lyreon di antaranya.</string>
-    <string name="account_dialog_title">Tampal kuki YouTube</string>
-    <string name="account_dialog_body">Log masuk ke youtube.com dalam pelayar, eksport kuki (Cookie-Editor atau Get cookies.txt LOCALLY), kemudian tampal di sini. Format header Cookie, cookies.txt (Netscape) dan eksport JSON semuanya diterima.</string>
-    <string name="account_dialog_hint">SAPISID=…; __Secure-1PSID=…; HSID=…</string>
-    <string name="account_saved">Akaun dipasang — cache strim dibersihkan.</string>
-    <string name="account_rejected_empty">Medan kosong.</string>
-    <string name="account_rejected_format">Format tidak dikenali. Pastikan ia mengandungi pasangan name=value kuki YouTube.</string>
-    <string name="account_rejected_no_sapisid">Ditolak: kuki tanpa SAPISID. Memaksanya akan menggagalkan SEMUA lagu, jadi Lyreon kekal tanpa nama.</string>
-    <string name="account_remove_title">Buang akaun YouTube?</string>
-    <string name="account_remove_body">Kuki dipadam dari peranti dan pengekstrak kembali ke mod tanpa nama.</string>
-    <string name="account_removed">Akaun dibuang — kembali ke mod tanpa nama.</string>
-    <string name="account_test">UJI SAMBUNGAN</string>
-
     <!-- Kesihatan strim & diagnostik tangga klien -->
     <string name="sec_stream_health">KESIHATAN STRIM</string>
     <string name="health_ok">Normal — tiada kegagalan berturutan.</string>
     <string name="health_degraded">Terganggu — sesetengah lagu dilangkau.</string>
     <string name="health_tripped">Dihentikan — %1$d kegagalan berturutan.</string>
     <string name="health_body">Pemain berhenti melangkau lagu selepas kegagalan berulang, dan hanya sambung selepas lagu terbukti berbunyi.</string>
-    <string name="health_sabr_hint">Corak SABR-only dikesan: YouTube menutup URL strim bagi klien tanpa identiti. Pasang kuki akaun kemudian cuba lagi.</string>
+    <string name="health_sabr_hint">Corak SABR/DRM dikesan: YouTube menutup URL strim bagi klien tanpa identiti. Lyreon tidak menggunakan akaun — cuba lagi sebentar, atau kemas kini app jika berterusan.</string>
     <string name="health_retry">CUBA LAGI</string>
     <string name="health_dismiss">TUTUP</string>
     <string name="health_diag_title">Diagnostik klien</string>
@@ -287,7 +261,12 @@
     <string name="health_test_extractor_fail">gagal</string>
     <string name="health_test_ladder">Tangga klien: audio melalui %1$s</string>
     <string name="health_test_ladder_none">tiada klien berjaya</string>
-    <string name="health_test_account">Identiti: %1$s</string>
+    <string name="health_test">Uji sambungan</string>
+    <string name="health_copy">Salin diagnostik</string>
+    <string name="health_copied">Diagnostik disalin ke papan keratan</string>
+    <string name="health_reset">Set semula cache strim</string>
+    <string name="health_test_manifest">Manifest HLS tersedia melalui %1$s (boleh dimainkan)</string>
+    <string name="health_test_drm">Sesetengah klien membalas format ber-DRM (perlukan sesi tetamu YouTube)</string>
     <string name="health_test_sabr">SABR-only dikesan pada sesetengah klien</string>
     <string name="health_test_hls">Hanya HLS tersedia (perlu pemain HLS)</string>
     <string name="health_test_recent">Sejarah terkini:</string>
@@ -296,7 +275,6 @@
     <string name="stream_reloading">Memuat semula strim…</string>
     <string name="stream_track_skipped">Lagu dilangkau (strim tidak tersedia)</string>
     <string name="stream_retrying">Mencuba main semula…</string>
-    <string name="stream_tripped_sabr_anonymous">Strim dikunci YouTube (SABR). Pasang kuki akaun YouTube di Tetapan untuk membuka laluan log masuk, kemudian cuba lagi.</string>
-    <string name="stream_tripped_sabr_logged_in">Strim masih dikunci walaupun akaun aktif. Cuba beberapa minit lagi atau segar semula kuki di Tetapan.</string>
+    <string name="stream_tripped_sabr_anonymous">YouTube mengunci strim untuk main balik tanpa identiti (SABR/poToken). Baris gilir disimpan — cuba lagi beberapa minit, atau buka Tetapan → Kesihatan strim.</string>
     <string name="stream_snackbar_action">TETAPAN</string>
 </resources>

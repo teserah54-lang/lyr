@@ -98,7 +98,7 @@ class PlayerManager(
     private companion object {
         /**
          * Tag logcat khusus kesehatan stream. Saring dengan
-         * `adb logcat -s LyreonStreamHealth PlayerClientLadder YouTubeAccount`
+         * `adb logcat -s LyreonStreamHealth PlayerClientLadder InnertubeFallback`
          * untuk melihat seluruh rantai keputusan saat lagu gagal diputar.
          */
         const val TAG = "LyreonStreamHealth"
@@ -247,6 +247,7 @@ class PlayerManager(
             syncFromPlayer(c)
             tasteActiveTrack = _state.value.currentTrack
             errorRetries.clear()
+            applyHlsBandwidthPolicy(c)
             warmUpcoming(c)
             maybeExtendQueue(c)
             scheduleSave()
@@ -285,6 +286,35 @@ class PlayerManager(
                 com.lyreon.app.yt.innertube.PlayerClientLadder.push(
                     "player error $id berciri SABR/HLS (${error.errorCodeName})",
                 )
+            }
+
+            // Stream hanya tersedia sebagai manifest HLS? Itu BUKAN kegagalan:
+            // HLS adalah jalur anonim yang sah (manifest tidak menuntut poToken
+            // GVS). Tukar MediaItem ke URL m3u8 + MIME yang benar supaya
+            // DefaultMediaSourceFactory membangun HlsMediaSource, lalu putar lagi.
+            val hls = findHlsRequest(error)
+            val currentItem = c.currentMediaItem
+            if (hls != null && id.isNotBlank() && currentItem != null &&
+                currentItem.localConfiguration?.uri?.scheme == ResolvingDataSource.LYREON_SCHEME
+            ) {
+                val index = c.currentMediaItemIndex
+                val swapped = currentItem.buildUpon()
+                    .setUri(hls.manifestUrl)
+                    .setMimeType(hls.manifestMime)
+                    .build()
+                com.lyreon.app.yt.innertube.PlayerClientLadder.push(
+                    "player: $id ditukar ke manifest HLS",
+                )
+                Log.i(TAG, "track '$id' beralih ke manifest HLS")
+                // Penukaran ini tidak memakan jatah retry satu-per-track.
+                errorRetries[id] = tries
+                runCatching {
+                    c.replaceMediaItem(index, swapped)
+                    c.seekTo(index, 0)
+                    c.prepare()
+                    c.play()
+                }.onFailure { Log.w(TAG, "gagal menukar ke HLS: ${it.message}") }
+                return
             }
 
             when {
@@ -332,13 +362,31 @@ class PlayerManager(
     // Circuit breaker kesehatan stream
     // ------------------------------------------------------------------
 
-    /** Menelusuri rantai cause mencari tanda SABR-only / HLS-only. */
+    /**
+     * Menelusuri rantai cause mencari sinyal "stream ini manifest HLS" yang
+     * dilempar [ResolvingDataSource].
+     */
+    private fun findHlsRequest(error: PlaybackException): HlsRequiredException? {
+        var node: Throwable? = error
+        var depth = 0
+        while (node != null && depth < 8) {
+            if (node is HlsRequiredException) return node
+            node = node.cause
+            depth++
+        }
+        return null
+    }
+
+    /**
+     * Menelusuri rantai cause mencari tanda YouTube menutup akses anonim:
+     * SABR-only, hanya-HLS, atau format ber-DRM.
+     */
     private fun isSabrFailure(error: PlaybackException): Boolean {
         var node: Throwable? = error
         var depth = 0
         while (node != null && depth < 8) {
             if (node is com.lyreon.app.yt.innertube.StreamUnavailableException) {
-                return node.sabrOnly || node.hlsOnly
+                return node.sabrOnly || node.hlsOnly || node.drmOnly
             }
             val message = node.message.orEmpty()
             if (message.contains("SABR", ignoreCase = true)) return true
@@ -376,18 +424,18 @@ class PlayerManager(
 
     /** Buka breaker: hentikan pemutaran, simpan antrean, beri pesan yang actionable. */
     private fun tripPlayback(c: MediaController, sabrSuspected: Boolean) {
-        val message = when {
-            sabrSuspected && !com.lyreon.app.yt.YouTubeAccount.isLoggedIn ->
-                context.getString(R.string.stream_tripped_sabr_anonymous)
-            sabrSuspected ->
-                context.getString(R.string.stream_tripped_sabr_logged_in)
-            else -> context.getString(R.string.stream_stopped_unavailable)
+        // Lyreon anonim (tanpa cookie akun), jadi pesannya tidak pernah menyuruh
+        // pengguna login — yang bisa ditindaklanjuti adalah menunggu/mencoba lagi
+        // atau memperbarui app saat tangga klien perlu disesuaikan.
+        val message = if (sabrSuspected) {
+            context.getString(R.string.stream_tripped_sabr_anonymous)
+        } else {
+            context.getString(R.string.stream_stopped_unavailable)
         }
         Log.e(
             TAG,
             "breaker TERBUKA (TRIPPED): kegagalan=$consecutiveFailures " +
-                "skip=${skipTimestamps.size} sabr=$sabrSuspected " +
-                "login=${com.lyreon.app.yt.YouTubeAccount.isLoggedIn} — antrean dipertahankan",
+                "skip=${skipTimestamps.size} sabr=$sabrSuspected — antrean dipertahankan",
         )
         emit(message)
         // Antrean DIPERTAHANKAN — `stop()` tidak menghapus item. Perilaku lama
@@ -534,14 +582,54 @@ class PlayerManager(
     private fun warmUpcoming(c: MediaController) {
         val count = c.mediaItemCount
         if (count == 0) return
-        val ids = mutableListOf<String>()
         val idx = c.currentMediaItemIndex
-        if (idx + 1 < count) ids.add(c.getMediaItemAt(idx + 1).mediaId)
-        if (idx + 2 < count) ids.add(c.getMediaItemAt(idx + 2).mediaId)
-        ids.removeAll { it.startsWith(LyreonTrack.LOCAL_ID_PREFIX) } // lokal tidak perlu warm-up stream
+        val upcoming = listOf(idx + 1, idx + 2).filter { it < count }
+        val ids = upcoming
+            .map { c.getMediaItemAt(it).mediaId }
+            .filterNot { it.startsWith(LyreonTrack.LOCAL_ID_PREFIX) } // lokal tak perlu warm-up
         if (ids.isEmpty()) return
         scope.launch(Dispatchers.IO) {
             runCatching { locator.youtube.warmUp(*ids.toTypedArray()) }
+            // Lagu berikutnya yang ternyata hanya punya manifest HLS dipersiapkan
+            // SEKARANG (bukan saat sudah error): MediaItem ditukar ke URL m3u8 +
+            // MIME, jadi transisi mulus tanpa retry.
+            withContext(Dispatchers.Main) { upgradeManifestItems(c, upcoming) }
+        }
+    }
+
+    /**
+     * Tukar `MediaItem` ber-skema `lyreon://` yang hasil resolusinya manifest HLS
+     * menjadi item beralamat m3u8 langsung. Hanya untuk lagu yang BELUM diputar,
+     * jadi tidak ada risiko memutus playback yang sedang berjalan.
+     */
+    private fun upgradeManifestItems(c: MediaController, indexes: List<Int>) {
+        indexes.forEach { index ->
+            val item = runCatching { c.getMediaItemAt(index) }.getOrNull() ?: return@forEach
+            val local = item.localConfiguration ?: return@forEach
+            if (local.uri.scheme != ResolvingDataSource.LYREON_SCHEME) return@forEach
+            val manifest = locator.youtube.cachedManifestFor(item.mediaId) ?: return@forEach
+            val swapped = item.buildUpon()
+                .setUri(manifest.first)
+                .setMimeType(manifest.second)
+                .build()
+            runCatching { c.replaceMediaItem(index, swapped) }
+                .onSuccess { Log.i(TAG, "antrean[$index] (${item.mediaId}) disiapkan sebagai HLS") }
+        }
+        applyHlsBandwidthPolicy(c)
+    }
+
+    /**
+     * Manifest HLS YouTube berisi varian video+audio yang sudah digabung. Lyreon
+     * pemutar audio → matikan track video supaya ExoPlayer memilih varian termurah
+     * yang masih mengandung audio (hemat kuota berlipat dibanding varian 720p).
+     */
+    private fun applyHlsBandwidthPolicy(c: MediaController) {
+        val mime = c.currentMediaItem?.localConfiguration?.mimeType.orEmpty()
+        val isHls = mime.contains("mpegurl", ignoreCase = true)
+        runCatching {
+            c.trackSelectionParameters = c.trackSelectionParameters.buildUpon()
+                .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, isHls)
+                .build()
         }
     }
 

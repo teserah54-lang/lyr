@@ -3,6 +3,7 @@ package com.lyreon.app.player
 import android.content.ComponentName
 import android.content.Context
 import android.net.Uri
+import android.util.Log
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
@@ -95,6 +96,13 @@ class PlayerManager(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     private companion object {
+        /**
+         * Tag logcat khusus kesehatan stream. Saring dengan
+         * `adb logcat -s LyreonStreamHealth PlayerClientLadder YouTubeAccount`
+         * untuk melihat seluruh rantai keputusan saat lagu gagal diputar.
+         */
+        const val TAG = "LyreonStreamHealth"
+
         /**
          * Bukti kemajuan playback yang diperlukan sebelum penghitung kegagalan
          * di-reset. 8 detik cukup untuk menyingkirkan "READY sesaat lalu error",
@@ -297,6 +305,12 @@ class PlayerManager(
                 // error lagi" yang dulu tak terdeteksi).
                 c.hasNextMediaItem() && consecutiveFailures < FAILURE_LIMIT -> {
                     consecutiveFailures++
+                    Log.w(
+                        TAG,
+                        "gagal #$consecutiveFailures/$FAILURE_LIMIT track='$id' " +
+                            "errorCode=${error.errorCodeName} sabr=$sabrSuspected " +
+                            "skipDalamJendela=${skipTimestamps.size}",
+                    )
                     if (registerSkip()) {
                         tripPlayback(c, sabrSuspected)
                     } else {
@@ -369,6 +383,12 @@ class PlayerManager(
                 context.getString(R.string.stream_tripped_sabr_logged_in)
             else -> context.getString(R.string.stream_stopped_unavailable)
         }
+        Log.e(
+            TAG,
+            "breaker TERBUKA (TRIPPED): kegagalan=$consecutiveFailures " +
+                "skip=${skipTimestamps.size} sabr=$sabrSuspected " +
+                "login=${com.lyreon.app.yt.YouTubeAccount.isLoggedIn} — antrean dipertahankan",
+        )
         emit(message)
         // Antrean DIPERTAHANKAN — `stop()` tidak menghapus item. Perilaku lama
         // mengosongkan antrean, sehingga pemulihan berarti mencari ulang lagu.
@@ -410,6 +430,11 @@ class PlayerManager(
         ) {
             return
         }
+        Log.i(
+            TAG,
+            "breaker di-reset: posisi maju ≥${PROGRESS_RESET_MS}ms pada track='$id' " +
+                "(sebelumnya kegagalan=$consecutiveFailures, level=${_health.value.level})",
+        )
         consecutiveFailures = 0
         skipTimestamps.clear()
         _health.value = StreamHealth()

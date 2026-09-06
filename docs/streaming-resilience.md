@@ -146,6 +146,25 @@ Berkas kunci:
 5. **Jangan menambal sekali lalu lupa.** Setiap perubahan YouTube = satu entri di
    bagian riwayat di bawah + satu baris di `PlayerClientLadder` bila urutan berubah.
 
+### Saring logcat
+
+Layar diagnostik menutupi hampir semua kasus, tetapi untuk laporan bug dari
+pengguna lain, logcat memberi urutan kejadian yang persis:
+
+```bash
+adb logcat -s LyreonStreamHealth PlayerClientLadder YouTubeAccount InnertubeFallback
+```
+
+| Tag | Yang dicatat |
+|---|---|
+| `LyreonStreamHealth` | tiap kegagalan (`gagal #n/3 track=… errorCode=… sabr=…`), breaker **TERBUKA**, dan breaker **di-reset** beserta bukti kemajuan posisinya |
+| `PlayerClientLadder` | verdict per klien (`visionos → SABR_ONLY (412ms)`), total kejadian SABR sesi ini, dan `extractor: N stream HLS saja` |
+| `YouTubeAccount` | hasil validasi cookie (jumlah pasangan, ada/tidaknya SAPISID) — **tanpa** nilai cookie |
+| `InnertubeFallback` | tangga klien yang dipakai saat extractor utama gagal |
+
+Pola yang menandakan loop lama sudah tertangani: beberapa baris `gagal #1..#3`
+lalu satu baris `breaker TERBUKA` — bukan puluhan skip tanpa akhir.
+
 ### Riwayat penyesuaian
 
 | Tanggal | Perubahan | Sebab |

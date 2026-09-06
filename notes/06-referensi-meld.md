@@ -174,6 +174,24 @@ gh api "repos/FrancescoGrazioso/Meld/commits?path=<path>&per_page=5" \
 **Yang sengaja tidak diporting:** poToken/BotGuard, n-transform/EJS, SABR, NewPipe
 signature deobfuscation, login/akun, modul Spotify/Last.fm/Kizzy/ShazamKit.
 
+### 4b. Porting setelah relisensi GPL-3.0 (gelombang 2 — lirik)
+
+Sejak Lyreon berlisensi GPL-3.0-only (§1), kode Meld boleh diadaptasi langsung dengan
+header hak cipta asal + komentar path sumber. Yang sudah dipakai:
+
+| Dari Meld (GPL-3.0) | Ke Lyreon | Catatan adaptasi |
+|---|---|---|
+| `kugou/src/main/kotlin/com/metrolist/kugou/KuGou.kt` + `models/*.kt` | `lyrics/KuGouProvider.kt` | Ktor + kotlinx.serialization → OkHttp + org.json; endpoint, parameter, toleransi durasi (8 dtk), normalisasi kata kunci, dan pemotongan kepala/ekor dipertahankan; pemotongan ekor dihitung dari daftar hasil potong kepala (upstream memakai indeks daftar awal) |
+| `lyrics/LyricsProvider.kt` | `lyrics/LyricsProvider.kt` | tanpa `Context`/Hilt; hasil berupa `LyricsResult` Lyreon |
+| `lyrics/{LyricsHelper,LyricsProviderRegistry}.kt` | `lyrics/LyricsRepository.kt` | tangga provider berprioritas + cache per `videoId` |
+| `ui/utils/FadingEdge.kt` | `ui/utils/FadingEdge.kt` | disalin hampir apa adanya (hanya paket & KDoc) |
+| `ui/component/OriginalLyrics.kt` (perilaku, bukan berkas) | `ui/components/LyricsSheet.kt` | diambil: `findCurrentLineIndex`, `performSmoothPageScroll` (memusatkan baris aktif), `NestedScrollConnection` yang menjeda auto-scroll lalu lanjut setelah `LyricsPreviewTime` 2 dtk, konstanta durasi (initial 800 / seek 600 / auto 1500 ms), ketuk baris = seek + auto-scroll aktif lagi. **Tidak** diambil: terjemahan AI (DeepL/OpenRouter), romanisasi, ekspor gambar lirik, mode seleksi, BetterLyrics/TTML per kata, palette artwork |
+| `viewmodels/LyricsViewModel.kt` (ide offset per lagu) | `SettingsRepository.lyricsOffsetMs` + footer `LyricsSheet` | offset global ±10 dtk, langkah 500 ms |
+
+Sumber posisi: `PlayerManager.positionNow()` (baca `MediaController.currentPosition`
+langsung, poll 50 ms) — mengikuti cara Meld membaca `playerConnection.player.currentPosition`
+di loop lirik alih-alih berlangganan ticker UI 500 ms.
+
 ## 5. Cara memakai Meld sebagai rujukan harian
 
 1. Lagu gagal massal → `bash tools/ci/meld-client-radar.sh` (drift spesifikasi).

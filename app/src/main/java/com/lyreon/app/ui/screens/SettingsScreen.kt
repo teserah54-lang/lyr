@@ -174,6 +174,13 @@ fun SettingsScreen(
                     checked = settings.reduceMotion,
                     onChange = vm::setReduceMotion,
                 )
+                Spacer(Modifier.height(14.dp))
+                ToggleRow(
+                    title = stringResource(R.string.kugou_title),
+                    body = stringResource(R.string.kugou_body),
+                    checked = settings.kugouEnabled,
+                    onChange = vm::setKugou,
+                )
             }
         }
 

@@ -36,6 +36,14 @@ data class LyreonSettings(
     val fontKey: String = "default",
     /** Material You: ambil palet dari wallpaper (Android 12+). */
     val dynamicColor: Boolean = false,
+    /**
+     * Penyesuaian waktu lirik dalam milidetik (positif = lirik maju).
+     * Disimpan global, bukan per lagu: cukup untuk mengoreksi sumber lirik yang
+     * konsisten bergeser beberapa ratus ms.
+     */
+    val lyricsOffsetMs: Int = 0,
+    /** Provider lirik KuGou sebagai cadangan setelah LRCLIB. */
+    val kugouEnabled: Boolean = true,
 )
 
 class SettingsRepository(private val context: Context) {
@@ -49,6 +57,8 @@ class SettingsRepository(private val context: Context) {
         val ACCENT_ARGB = intPreferencesKey("accent_argb")
         val FONT_KEY = stringPreferencesKey("font_key")
         val DYNAMIC_COLOR = booleanPreferencesKey("dynamic_color")
+        val LYRICS_OFFSET_MS = intPreferencesKey("lyrics_offset_ms")
+        val KUGOU_ENABLED = booleanPreferencesKey("kugou_enabled")
     }
 
     val settings: Flow<LyreonSettings> = context.lyreonDataStore.data.map { prefs ->
@@ -64,6 +74,8 @@ class SettingsRepository(private val context: Context) {
             accentArgb = prefs[Keys.ACCENT_ARGB] ?: -1,
             fontKey = prefs[Keys.FONT_KEY] ?: "default",
             dynamicColor = prefs[Keys.DYNAMIC_COLOR] ?: false,
+            lyricsOffsetMs = prefs[Keys.LYRICS_OFFSET_MS] ?: 0,
+            kugouEnabled = prefs[Keys.KUGOU_ENABLED] ?: true,
         )
     }
 
@@ -97,5 +109,14 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setDynamicColor(value: Boolean) {
         context.lyreonDataStore.edit { it[Keys.DYNAMIC_COLOR] = value }
+    }
+
+    suspend fun setLyricsOffsetMs(value: Int) {
+        // Batas wajar: ±10 detik — lebih dari itu pasti salah tekan.
+        context.lyreonDataStore.edit { it[Keys.LYRICS_OFFSET_MS] = value.coerceIn(-10_000, 10_000) }
+    }
+
+    suspend fun setKugouEnabled(value: Boolean) {
+        context.lyreonDataStore.edit { it[Keys.KUGOU_ENABLED] = value }
     }
 }

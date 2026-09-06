@@ -119,6 +119,13 @@
     <string name="lyrics_error">歌词加载失败 — 请检查网络。</string>
     <string name="lyrics_instrumental">纯音乐 — 无歌词。</string>
     <string name="lyrics_source">歌词由 LRCLIB 提供</string>
+    <string name="lyrics_source_fmt">歌词来源：%1$s</string>
+    <string name="lyrics_offset_minus">歌词延后 0.5 秒</string>
+    <string name="lyrics_offset_plus">歌词提前 0.5 秒</string>
+    <string name="lyrics_offset_value">%1$.1f 秒</string>
+    <string name="lyrics_offset_reset">重置</string>
+    <string name="kugou_title">KuGou 歌词来源</string>
+    <string name="kugou_body">当 LRCLIB 找不到歌词时尝试 KuGou —— 覆盖更广，尤其是亚洲歌曲。</string>
 
     <string name="act_play_next">下一首播放</string>
     <string name="act_add_queue">添加到队列</string>

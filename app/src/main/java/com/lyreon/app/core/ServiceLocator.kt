@@ -79,8 +79,8 @@ class ServiceLocator(val app: LyreonApp) {
     val settings: SettingsRepository by lazy { SettingsRepository(app) }
 
     /**
-     * Identitas YouTube (cookie akun). Dipisah dari [settings] karena cookie
-     * adalah kredensial — tidak boleh ikut mengalir ke flow preferensi UI.
+     * Lyreon berjalan ANONIM penuh: tidak ada cookie/kredensial akun di mana pun.
+     * Lihat notes/02 §1 — jangan menambahkan jalur login tanpa keputusan produk.
      */
     /** Profil selera pengguna untuk algoritma rekomendasi (lokal, on-device). */
     val taste: com.lyreon.app.data.taste.TasteRepository by lazy {
@@ -92,7 +92,7 @@ class ServiceLocator(val app: LyreonApp) {
 
     val youtube: YouTubeRepository by lazy { YouTubeRepository() }
 
-    val lyrics: LyricsRepository by lazy { LyricsRepository() }
+    val lyrics: LyricsRepository by lazy { LyricsRepository(settings) }
 
     val local: com.lyreon.app.local.LocalMusicRepository by lazy {
         com.lyreon.app.local.LocalMusicRepository(app)

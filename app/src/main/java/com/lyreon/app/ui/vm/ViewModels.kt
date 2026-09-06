@@ -864,6 +864,22 @@ class SettingsViewModel(private val locator: ServiceLocator) : ViewModel() {
         viewModelScope.launch { locator.settings.setDynamicColor(v) }
     }
 
+    /** Geser waktu lirik (langkah 500 ms, dijepit ±10 detik di repository). */
+    fun nudgeLyricsOffset(deltaMs: Int) {
+        viewModelScope.launch {
+            val current = locator.settings.settings.first().lyricsOffsetMs
+            locator.settings.setLyricsOffsetMs(current + deltaMs)
+        }
+    }
+
+    fun resetLyricsOffset() {
+        viewModelScope.launch { locator.settings.setLyricsOffsetMs(0) }
+    }
+
+    fun setKugou(v: Boolean) {
+        viewModelScope.launch { locator.settings.setKugouEnabled(v) }
+    }
+
     fun clearHistory() {
         viewModelScope.launch { locator.library.clearHistory() }
     }

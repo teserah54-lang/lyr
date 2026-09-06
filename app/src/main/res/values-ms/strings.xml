@@ -119,6 +119,13 @@
     <string name="lyrics_error">Gagal memuatkan lirik — semak sambungan.</string>
     <string name="lyrics_instrumental">Instrumental — tiada lirik.</string>
     <string name="lyrics_source">Lirik oleh LRCLIB</string>
+    <string name="lyrics_source_fmt">Lirik oleh %1$s</string>
+    <string name="lyrics_offset_minus">Undurkan lirik 0.5 saat</string>
+    <string name="lyrics_offset_plus">Majukan lirik 0.5 saat</string>
+    <string name="lyrics_offset_value">%1$.1f s</string>
+    <string name="lyrics_offset_reset">Set semula</string>
+    <string name="kugou_title">Sumber lirik KuGou</string>
+    <string name="kugou_body">Cuba KuGou apabila LRCLIB tiada lirik — liputan lebih luas, terutamanya lagu Asia.</string>
 
     <string name="act_play_next">MAIN SELEPAS INI</string>
     <string name="act_add_queue">TAMBAH KE GILIRAN</string>

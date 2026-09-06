@@ -127,6 +127,13 @@
     <string name="lyrics_error">Gagal memuat lirik — periksa koneksi.</string>
     <string name="lyrics_instrumental">Instrumental — tidak ada lirik.</string>
     <string name="lyrics_source">Lirik oleh LRCLIB</string>
+    <string name="lyrics_source_fmt">Lirik oleh %1$s</string>
+    <string name="lyrics_offset_minus">Mundurkan lirik 0,5 detik</string>
+    <string name="lyrics_offset_plus">Majukan lirik 0,5 detik</string>
+    <string name="lyrics_offset_value">%1$.1f dtk</string>
+    <string name="lyrics_offset_reset">Setel ulang</string>
+    <string name="kugou_title">Sumber lirik KuGou</string>
+    <string name="kugou_body">Coba KuGou bila LRCLIB tidak menemukan lirik — cakupan lebih luas, terutama lagu Asia.</string>
 
     <!-- Aksi lagu (sheet) -->
     <string name="act_play_next">PUTAR SETELAH INI</string>

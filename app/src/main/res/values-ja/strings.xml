@@ -119,6 +119,13 @@
     <string name="lyrics_error">歌詞を読み込めませんでした — 接続を確認してください。</string>
     <string name="lyrics_instrumental">インストゥルメンタル — 歌詞はありません。</string>
     <string name="lyrics_source">歌詞提供: LRCLIB</string>
+    <string name="lyrics_source_fmt">歌詞の提供: %1$s</string>
+    <string name="lyrics_offset_minus">歌詞を0.5秒戻す</string>
+    <string name="lyrics_offset_plus">歌詞を0.5秒進める</string>
+    <string name="lyrics_offset_value">%1$.1f 秒</string>
+    <string name="lyrics_offset_reset">リセット</string>
+    <string name="kugou_title">KuGou 歌詞ソース</string>
+    <string name="kugou_body">LRCLIBに歌詞がない場合にKuGouを試します（アジアの楽曲に特に強い）。</string>
 
     <string name="act_play_next">次に再生</string>
     <string name="act_add_queue">キューに追加</string>

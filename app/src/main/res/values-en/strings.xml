@@ -119,6 +119,13 @@
     <string name="lyrics_error">Couldn\'t load lyrics — check your connection.</string>
     <string name="lyrics_instrumental">Instrumental — no lyrics.</string>
     <string name="lyrics_source">Lyrics by LRCLIB</string>
+    <string name="lyrics_source_fmt">Lyrics by %1$s</string>
+    <string name="lyrics_offset_minus">Move lyrics back 0.5 seconds</string>
+    <string name="lyrics_offset_plus">Move lyrics forward 0.5 seconds</string>
+    <string name="lyrics_offset_value">%1$.1f s</string>
+    <string name="lyrics_offset_reset">Reset</string>
+    <string name="kugou_title">KuGou lyrics source</string>
+    <string name="kugou_body">Try KuGou when LRCLIB has no lyrics — wider coverage, especially for Asian songs.</string>
 
     <string name="act_play_next">PLAY NEXT</string>
     <string name="act_add_queue">ADD TO QUEUE</string>

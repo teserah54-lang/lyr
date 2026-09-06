@@ -132,6 +132,18 @@ class PlayerManager(
     private val _position = MutableStateFlow(PlayerPosition())
     val position: StateFlow<PlayerPosition> = _position.asStateFlow()
 
+    /**
+     * Posisi pemutaran dibaca LANGSUNG dari pemutar (murah, dalam-proses, tanpa
+     * memicu recomposition). Dipakai lirik hidup yang butuh ketelitian ~40 ms —
+     * flow [position] sengaja hanya dipompa tiap 500 ms agar layar lain hemat.
+     *
+     * Pendekatan ini mengikuti Meld/Metrolist yang membaca `player.currentPosition`
+     * di loop lirik, alih-alih berlangganan ticker UI.
+     */
+    fun positionNow(): Long =
+        runCatching { controller?.currentPosition?.coerceAtLeast(0L) }.getOrNull()
+            ?: _position.value.positionMs
+
     private val _events = MutableSharedFlow<String>(extraBufferCapacity = 8)
     val events: SharedFlow<String> = _events.asSharedFlow()
 

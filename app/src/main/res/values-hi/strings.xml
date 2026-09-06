@@ -119,6 +119,13 @@
     <string name="lyrics_error">बोल लोड नहीं हो सके — कनेक्शन जाँचें।</string>
     <string name="lyrics_instrumental">इंस्ट्रूमेंटल — कोई बोल नहीं।</string>
     <string name="lyrics_source">बोल स्रोत: LRCLIB</string>
+    <string name="lyrics_source_fmt">%1$s द्वारा बोल</string>
+    <string name="lyrics_offset_minus">बोल 0.5 सेकंड पीछे करें</string>
+    <string name="lyrics_offset_plus">बोल 0.5 सेकंड आगे करें</string>
+    <string name="lyrics_offset_value">%1$.1f से.</string>
+    <string name="lyrics_offset_reset">रीसेट</string>
+    <string name="kugou_title">KuGou बोल स्रोत</string>
+    <string name="kugou_body">जब LRCLIB में बोल न हों तो KuGou आज़माएँ — विशेषकर एशियाई गानों के लिए व्यापक कवरेज।</string>
 
     <string name="act_play_next">इसके बाद चलाएँ</string>
     <string name="act_add_queue">कतार में जोड़ें</string>

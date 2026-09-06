@@ -75,6 +75,23 @@ Invarian tambahan yang mudah terlewat:
   (bukan apa). Pertahankan gaya ini: komentar "kenapa" itulah yang menyelamatkan
   debugging jarak jauh.
 
+### 4b. Lirik = tangga provider, bukan satu sumber
+
+- `lyrics/LyricsRepository.kt` mencoba `LyreonLyricsProvider` berurutan menurut
+  `priority` (LRCLIB 10 → KuGou 20) dan **berhenti pada hasil pertama yang punya baris
+  tersinkron**; hasil non-synced disimpan sebagai cadangan. Semua hasil di-cache per
+  `videoId` (satu lagu = satu rangkaian permintaan jaringan).
+- Provider tidak boleh melempar exception keluar — kembalikan `null`. Jangan menambah
+  provider yang butuh kunci API berbayar/akun (melanggar §1 anonim-only).
+- KuGou bisa dimatikan pengguna (`kugouEnabled`). Provider baru wajib punya sakelar juga.
+- UI lirik (`ui/components/LyricsSheet.kt`) membaca posisi lewat
+  `PlayerManager.positionNow()` (poll 50 ms) — **jangan** dikembalikan ke flow
+  `position` 500 ms: highlight akan terasa tersendat. Sebaliknya jangan menaikkan
+  frekuensi poll di atas ~25 Hz tanpa mengukur baterai.
+- Koreksi waktu lirik = `lyricsOffsetMs` global (langkah 500 ms, dijepit ±10 dtk) dan
+  harus dipakai dua arah: `posisi + offset` untuk highlight, `waktuBaris - offset`
+  untuk seek.
+
 ## 5. Internasionalisasi
 
 - 6 berkas `strings.xml`: `values` (id, default), `values-en`, `values-hi`, `values-ja`,

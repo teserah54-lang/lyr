@@ -91,6 +91,7 @@ import com.lyreon.app.ui.screens.DownloadsScreen
 import com.lyreon.app.ui.screens.EditorialDetailScreen
 import com.lyreon.app.ui.screens.HomeScreen
 import com.lyreon.app.ui.screens.LibraryScreen
+import com.lyreon.app.ui.screens.LicensesScreen
 import com.lyreon.app.ui.screens.NowPlayingScreen
 import com.lyreon.app.ui.screens.PlaylistDetailScreen
 import com.lyreon.app.ui.screens.SearchScreen
@@ -649,7 +650,14 @@ private fun LyreonNavHost(
 
         composable("settings") {
             val vm: SettingsViewModel = lyreonViewModel { SettingsViewModel(it) }
-            SettingsScreen(vm = vm)
+            SettingsScreen(
+                vm = vm,
+                onOpenLicenses = { navController.navigate("licenses") { launchSingleTop = true } },
+            )
+        }
+
+        composable("licenses") {
+            LicensesScreen(onBack = { navController.popBackStack() })
         }
 
         composable(

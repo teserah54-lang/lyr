@@ -181,6 +181,14 @@
     <string name="skip_silence_instant_body">यदि 2 सेकंड से लंबी खामोशी अभी भी सुनाई दे तो 15 सेकंड आगे कूदें। ऊपर वाला विकल्प चालू होना चाहिए।</string>
     <string name="normalize_title">वॉल्यूम सामान्य करें</string>
     <string name="normalize_body">YouTube लाउडनेस डेटा से वॉल्यूम अपने आप समायोजित करें ताकि हर गाना एक जैसा सुनाई दे (अधिकतम +3 dB)।</string>
+    <string name="licenses_title">ओपन सोर्स लाइसेंस</string>
+    <string name="licenses_app_heading">Lyreon — GPL-3.0-only</string>
+    <string name="licenses_app_body">Lyreon GNU General Public License संस्करण 3 (केवल GPL-3.0-only) के अंतर्गत वितरित किया जाता है। पूर्ण स्रोत कोड प्रोजेक्ट रिपॉज़िटरी में उपलब्ध है। आप इस ऐप को उसी लाइसेंस के तहत उपयोग, अध्ययन, संशोधित और पुनर्वितरित करने के लिए स्वतंत्र हैं।</string>
+    <string name="licenses_sec_libraries">तृतीय-पक्ष लाइब्रेरी</string>
+    <string name="licenses_sec_assets">आइकन और फ़ॉन्ट</string>
+    <string name="licenses_sec_ported">पोर्ट किया गया कोड (GPL-3.0)</string>
+    <string name="licenses_notice_heading">Apache-2.0 सूचना</string>
+    <string name="licenses_notice_body">ऊपर दी गई कुछ लाइब्रेरी Apache License 2.0 के तहत हैं और बिना किसी वारंटी के जैसी हैं वैसी वितरित की जाती हैं। लाइसेंस की पूरी प्रति https://www.apache.org/licenses/LICENSE-2.0 पर उपलब्ध है।</string>
     <string name="language_label">ऐप की भाषा</string>
     <string name="clear_history_title">सुनने का इतिहास साफ़ करें</string>
     <string name="clear_history_body">हाल ही में चलाए गए रिकॉर्ड हटाता है (पसंदीदा और प्लेलिस्ट सुरक्षित)।</string>

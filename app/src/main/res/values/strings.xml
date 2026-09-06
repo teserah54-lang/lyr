@@ -192,6 +192,14 @@
     <string name="skip_silence_instant_body">Bila sunyi lebih dari 2 detik masih terdengar, lompat 15 detik ke depan. Butuh opsi di atas aktif.</string>
     <string name="normalize_title">Samakan volume lagu</string>
     <string name="normalize_body">Naik-turunkan volume otomatis memakai data loudness YouTube agar semua lagu terdengar setara (maks +3 dB).</string>
+    <string name="licenses_title">Lisensi sumber terbuka</string>
+    <string name="licenses_app_heading">Lyreon — GPL-3.0-only</string>
+    <string name="licenses_app_body">Lyreon didistribusikan di bawah GNU General Public License versi 3 saja (GPL-3.0-only). Kode sumber lengkap, termasuk riwayat perubahan, tersedia di repositori proyek. Anda bebas memakai, mempelajari, mengubah, dan membagikan ulang aplikasi ini dengan lisensi yang sama.</string>
+    <string name="licenses_sec_libraries">Pustaka pihak ketiga</string>
+    <string name="licenses_sec_assets">Ikon &amp; font</string>
+    <string name="licenses_sec_ported">Kode yang diporting (GPL-3.0)</string>
+    <string name="licenses_notice_heading">Pemberitahuan Apache-2.0</string>
+    <string name="licenses_notice_body">Sebagian pustaka di atas dilisensikan Apache License 2.0 dan didistribusikan apa adanya, TANPA JAMINAN APAPUN. Salinan lengkap lisensi tersedia di https://www.apache.org/licenses/LICENSE-2.0. Hak cipta masing-masing pustaka tetap milik pemiliknya.</string>
     <string name="language_label">Bahasa aplikasi</string>
     <string name="clear_history_title">Bersihkan riwayat dengar</string>
     <string name="clear_history_body">Menghapus catatan Recently Played (favorit &amp; playlist tetap aman).</string>

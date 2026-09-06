@@ -61,6 +61,7 @@ import com.lyreon.app.ui.vm.SettingsViewModel
 @Composable
 fun SettingsScreen(
     vm: SettingsViewModel,
+    onOpenLicenses: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val settings by vm.settings.collectAsStateWithLifecycle()
@@ -330,6 +331,20 @@ fun SettingsScreen(
                         .padding(horizontal = 14.dp, vertical = 10.dp),
                 ) {
                     Text(stringResource(R.string.about_donate), style = MaterialTheme.typography.labelMedium, color = LyreonCrimson)
+                }
+                Spacer(Modifier.height(10.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(1.dp, LyreonLine)
+                        .clickable { onOpenLicenses() }
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                ) {
+                    Text(
+                        stringResource(R.string.licenses_title),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = LyreonTextPrimary,
+                    )
                 }
                 Spacer(Modifier.height(14.dp))
                 Text(

@@ -181,6 +181,14 @@
     <string name="skip_silence_instant_body">Jika kesunyian lebih 2 saat masih kedengaran, lompat 15 saat ke hadapan. Perlukan pilihan di atas.</string>
     <string name="normalize_title">Seragamkan kelantangan</string>
     <string name="normalize_body">Laraskan kelantangan secara automatik menggunakan data kelantangan YouTube supaya semua lagu kedengaran sama (maks +3 dB).</string>
+    <string name="licenses_title">Lesen sumber terbuka</string>
+    <string name="licenses_app_heading">Lyreon — GPL-3.0-only</string>
+    <string name="licenses_app_body">Lyreon diedarkan di bawah GNU General Public License versi 3 sahaja (GPL-3.0-only). Kod sumber lengkap, termasuk sejarah perubahan, tersedia dalam repositori projek. Anda bebas menggunakan, mengkaji, mengubah dan mengedarkan semula aplikasi ini di bawah lesen yang sama.</string>
+    <string name="licenses_sec_libraries">Pustaka pihak ketiga</string>
+    <string name="licenses_sec_assets">Ikon &amp; fon</string>
+    <string name="licenses_sec_ported">Kod yang diport (GPL-3.0)</string>
+    <string name="licenses_notice_heading">Notis Apache-2.0</string>
+    <string name="licenses_notice_body">Sesetengah pustaka di atas dilesenkan di bawah Apache License 2.0 dan diedarkan SEBAGAIMANA ADANYA, TANPA SEBARANG JAMINAN. Salinan penuh lesen tersedia di https://www.apache.org/licenses/LICENSE-2.0.</string>
     <string name="language_label">Bahasa aplikasi</string>
     <string name="clear_history_title">Kosongkan sejarah pendengaran</string>
     <string name="clear_history_body">Memadam rekod Baru Dimainkan (kegemaran &amp; senarai main selamat).</string>

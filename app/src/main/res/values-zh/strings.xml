@@ -181,6 +181,14 @@
     <string name="skip_silence_instant_body">若仍听到超过 2 秒的静音，向前跳 15 秒。需要同时开启上面的选项。</string>
     <string name="normalize_title">统一音量</string>
     <string name="normalize_body">使用 YouTube 响度数据自动调整音量，使每首歌曲听感一致（最高 +3 dB）。</string>
+    <string name="licenses_title">开源许可</string>
+    <string name="licenses_app_heading">Lyreon — GPL-3.0-only</string>
+    <string name="licenses_app_body">Lyreon 依据 GNU General Public License 第 3 版（仅 GPL-3.0-only）分发。包含变更历史的完整源代码可在项目仓库获取。您可以在相同许可下自由使用、研究、修改和再分发本应用。</string>
+    <string name="licenses_sec_libraries">第三方库</string>
+    <string name="licenses_sec_assets">图标与字体</string>
+    <string name="licenses_sec_ported">移植的代码（GPL-3.0）</string>
+    <string name="licenses_notice_heading">Apache-2.0 声明</string>
+    <string name="licenses_notice_body">上述部分库采用 Apache License 2.0 许可，按“原样”分发，不附带任何担保。许可全文见 https://www.apache.org/licenses/LICENSE-2.0。</string>
     <string name="language_label">应用语言</string>
     <string name="clear_history_title">清除收听历史</string>
     <string name="clear_history_body">删除最近播放记录（收藏和歌单不受影响）。</string>

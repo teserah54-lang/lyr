@@ -62,12 +62,12 @@ Aturan praktis sejak keputusan ini:
 4. **Jangan mencampur lisensi lain** ke dalam karya (mis. menyalin kode Apache-2.0 yang
    mengandung paten/klausul tambahan, atau kode berlisensi tidak jelas dari gist/blog).
    Dependensi Apache-2.0/MPL-2.0 sebagai *library* tetap aman.
-5. **Perhatikan notice dependensi di APK.** `app/build.gradle.kts` mengecualikan
-   `META-INF/LICENSE*` saat packaging (keputusan lama untuk menghindari konflik
-   merge). Karena sebagian dependensi kita Apache-2.0 (yang mewajibkan notice
-   disertakan), siapkan layar "Lisensi sumber terbuka" di Settings atau ikutkan
-   berkas `NOTICE`/`THIRD-PARTY-LICENSES` pada rilis. **Utang kepatuhan — belum
-   dikerjakan.**
+5. **Notice dependensi di APK — SUDAH DILUNASI.** `app/build.gradle.kts` tetap
+   mengecualikan `META-INF/LICENSE*` saat packaging (keputusan lama untuk
+   menghindari konflik merge), tetapi notice kini disampaikan lewat layar
+   `ui/screens/LicensesScreen.kt` (rute `licenses` dari Settings → Tentang):
+   daftar pustaka + SPDX + URL, kartu GPL-3.0-only, atribusi Meld/Metrolist, dan
+   pemberitahuan Apache-2.0. **Daftarnya manual** — perbarui saat dependensi berubah.
 6. Distribusi APK = conveyance: sertakan tautan repositori sumber (sudah ada di README)
    dan jangan menambah pembatasan lain (DRM/anti-tivoisasi) di atasnya.
 

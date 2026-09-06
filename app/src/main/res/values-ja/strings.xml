@@ -181,6 +181,14 @@
     <string name="skip_silence_instant_body">2秒以上の無音がまだ聞こえる場合、15秒先へジャンプします。上のオプションが必要です。</string>
     <string name="normalize_title">音量を均一化</string>
     <string name="normalize_body">YouTubeのラウドネス情報を使って音量を自動調整し、曲ごとの音量差をなくします（最大 +3 dB）。</string>
+    <string name="licenses_title">オープンソースライセンス</string>
+    <string name="licenses_app_heading">Lyreon — GPL-3.0-only</string>
+    <string name="licenses_app_body">LyreonはGNU General Public License version 3のみ（GPL-3.0-only）の下で配布されます。変更履歴を含む完全なソースコードはプロジェクトのリポジトリで入手できます。同じライセンスの下で、本アプリの使用・研究・改変・再配布を自由に行えます。</string>
+    <string name="licenses_sec_libraries">サードパーティライブラリ</string>
+    <string name="licenses_sec_assets">アイコンとフォント</string>
+    <string name="licenses_sec_ported">移植したコード（GPL-3.0）</string>
+    <string name="licenses_notice_heading">Apache-2.0 の注意事項</string>
+    <string name="licenses_notice_body">上記の一部のライブラリは Apache License 2.0 の下でライセンスされ、いかなる保証もなく現状のまま配布されます。ライセンス全文は https://www.apache.org/licenses/LICENSE-2.0 で入手できます。</string>
     <string name="language_label">アプリの言語</string>
     <string name="clear_history_title">再生履歴を消去</string>
     <string name="clear_history_body">最近再生の記録を削除します（お気に入り・プレイリストは保持されます）。</string>

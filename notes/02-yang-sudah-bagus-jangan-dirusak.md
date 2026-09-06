@@ -119,7 +119,7 @@ Invarian tambahan yang mudah terlewat:
 - 6 berkas `strings.xml`: `values` (id, default), `values-en`, `values-hi`, `values-ja`,
   `values-ms`, `values-zh`.
 - Jumlah saat ini: **271** string default vs **260** di lima locale lain → ada
-  **11 string belum diterjemahkan** (utang yang diketahui; jangan ditambah).
+  **11 string belum diterjemahkan** (utang yang diketahui; jangan ditambah). Perhitungan terakhir: 304 di `values` vs 293 di lima locale lain.
 - Aturan: setiap string UI baru masuk ke **keenam** berkas dalam commit yang sama.
   Teks diagnostik/log boleh literal Indonesia di kode (bukan UI).
 - Jangan memakai string literal di komposisi; jangan memakai `hardcoded` teks di
@@ -161,9 +161,13 @@ atau identitas pengguna, dan perbarui `docs/streaming-resilience.md` §5.
   Jangan menghapus tabel itu saat merapikan README.
 - Jangan menurunkan lisensi ke yang lebih permisif (MIT/Apache) dan jangan menambah
   pembatasan di atas GPL saat mendistribusikan APK.
-- **Utang kepatuhan yang diketahui:** `app/build.gradle.kts` mengecualikan
-  `META-INF/LICENSE*` dari APK padahal sebagian dependensi Apache-2.0 mewajibkan notice
-  → perlu layar "Lisensi sumber terbuka" di Settings atau berkas notice pada rilis.
+- **Utang kepatuhan: SUDAH DILUNASI.** `app/build.gradle.kts` masih mengecualikan
+  `META-INF/LICENSE*` dari APK, tetapi notice kini tersedia di dalam aplikasi:
+  `ui/screens/LicensesScreen.kt` (rute `licenses`, dibuka dari Settings → Tentang)
+  memuat daftar pustaka + pengenal SPDX + URL, kartu GPL-3.0-only, atribusi kode
+  yang diporting dari Meld/Metrolist, dan pemberitahuan Apache-2.0.
+  **Daftar itu ditulis tangan**: setiap kali dependensi bertambah/berganti,
+  perbarui `APP_LIBRARIES`/`ART_AND_FONTS`/`CODE_PORTED_FROM` di berkas itu.
 
 ## 9. Tabel "jangan sentuh tanpa membaca"
 

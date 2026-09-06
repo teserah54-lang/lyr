@@ -181,6 +181,14 @@
     <string name="skip_silence_instant_body">If silence longer than 2 seconds is still audible, jump 15 seconds forward. Requires the option above.</string>
     <string name="normalize_title">Normalize volume</string>
     <string name="normalize_body">Automatically adjust volume using YouTube loudness data so every track sounds equally loud (max +3 dB).</string>
+    <string name="licenses_title">Open source licenses</string>
+    <string name="licenses_app_heading">Lyreon — GPL-3.0-only</string>
+    <string name="licenses_app_body">Lyreon is distributed under the GNU General Public License version 3 only (GPL-3.0-only). The complete source code, including its change history, is available in the project repository. You are free to use, study, modify and redistribute this app under the same license.</string>
+    <string name="licenses_sec_libraries">Third-party libraries</string>
+    <string name="licenses_sec_assets">Icons &amp; fonts</string>
+    <string name="licenses_sec_ported">Ported code (GPL-3.0)</string>
+    <string name="licenses_notice_heading">Apache-2.0 notice</string>
+    <string name="licenses_notice_body">Some libraries above are licensed under the Apache License 2.0 and are distributed AS IS, WITHOUT WARRANTIES OF ANY KIND. A full copy of the license is available at https://www.apache.org/licenses/LICENSE-2.0. Copyright notices remain the property of their respective owners.</string>
     <string name="language_label">App language</string>
     <string name="clear_history_title">Clear listening history</string>
     <string name="clear_history_body">Deletes your Recently Played records (favorites &amp; playlists are safe).</string>

@@ -193,6 +193,11 @@
     <string name="widget_description">直接从主屏幕控制 Lyreon 播放。</string>
     <string name="widget_empty_title">暂无播放</string>
     <string name="widget_play_pause">播放或暂停</string>
+    <string name="browse_kicker">浏览</string>
+    <string name="browse_empty_title">此页面为空</string>
+    <string name="browse_empty_body">YouTube 未返回此页面的任何专区，请稍后重试。</string>
+    <string name="browse_genres_title">流派与心情</string>
+    <string name="browse_genres_body">浏览直接来自 InnerTube 的 YouTube Music 官方流派与心情专区。</string>
     <string name="language_label">应用语言</string>
     <string name="clear_history_title">清除收听历史</string>
     <string name="clear_history_body">删除最近播放记录（收藏和歌单不受影响）。</string>

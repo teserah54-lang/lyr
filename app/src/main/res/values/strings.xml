@@ -204,6 +204,11 @@
     <string name="widget_description">Kendalikan pemutaran Lyreon langsung dari layar utama.</string>
     <string name="widget_empty_title">Tidak ada yang diputar</string>
     <string name="widget_play_pause">Putar atau jeda</string>
+    <string name="browse_kicker">JELAJAH</string>
+    <string name="browse_empty_title">Halaman ini kosong</string>
+    <string name="browse_empty_body">YouTube tidak mengembalikan rak apa pun untuk halaman ini. Coba lagi beberapa saat.</string>
+    <string name="browse_genres_title">Genre &amp; Mood</string>
+    <string name="browse_genres_body">Jelajahi rak resmi YouTube Music per genre dan suasana — dipetakan langsung dari InnerTube.</string>
     <string name="language_label">Bahasa aplikasi</string>
     <string name="clear_history_title">Bersihkan riwayat dengar</string>
     <string name="clear_history_body">Menghapus catatan Recently Played (favorit &amp; playlist tetap aman).</string>

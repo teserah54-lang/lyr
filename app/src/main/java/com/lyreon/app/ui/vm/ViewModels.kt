@@ -23,6 +23,7 @@ import com.lyreon.app.data.model.SearchFilter
 import com.lyreon.app.data.model.YtPlaylist
 import com.lyreon.app.data.settings.AudioQuality
 import com.lyreon.app.data.taste.MusicTextAnalyzer
+import com.lyreon.app.yt.BrowseSection
 import com.lyreon.app.yt.YouTubeRepository
 import com.lyreon.app.yt.YtSearchSession
 import kotlinx.coroutines.Job
@@ -692,6 +693,48 @@ data class YtPlaylistUiState(
     val error: String? = null,
     val saved: Boolean = false,
 )
+
+/**
+ * Satu halaman browse InnerTube (artis, album, genre/mood, kategori).
+ * Layar yang sama dipakai untuk semuanya — bedanya hanya browseId/params.
+ */
+data class BrowseUiState(
+    val loading: Boolean = true,
+    val failed: Boolean = false,
+    val title: String = "",
+    val sections: List<BrowseSection> = emptyList(),
+)
+
+class BrowseViewModel(
+    private val locator: ServiceLocator,
+    private val browseId: String,
+    private val params: String,
+) : ViewModel() {
+
+    private val _state = MutableStateFlow(BrowseUiState())
+    val state: StateFlow<BrowseUiState> = _state.asStateFlow()
+
+    init {
+        load()
+    }
+
+    fun load() {
+        viewModelScope.launch {
+            _state.update { it.copy(loading = true, failed = false) }
+            val page = runCatching {
+                locator.youtube.browsePage(browseId, params.ifBlank { null })
+            }.getOrNull()
+            _state.update {
+                it.copy(
+                    loading = false,
+                    failed = page == null || page.isEmpty,
+                    title = page?.title.orEmpty().ifBlank { it.title },
+                    sections = page?.sections.orEmpty(),
+                )
+            }
+        }
+    }
+}
 
 class YtPlaylistViewModel(private val locator: ServiceLocator, private val url: String) : ViewModel() {
 

@@ -120,6 +120,13 @@ Invarian tambahan yang mudah terlewat:
   pemutaran kedua di widget. Snapshot dipasok `PlayerManager.publishWidgetState()`
   dan `WidgetState.publish` berhenti lebih awal bila isi tidak berubah.
 
+- **Browse InnerTube** (`yt/BrowseModel.kt` → `BrowseParser`, `YouTubeRepository.browsePage`)
+  adalah pengurai murni tanpa Android/jaringan: semua pembacaan memakai `optX` dan
+  hasil kosong lebih baik daripada crash. Satu layar (`BrowseScreen`) melayani artis,
+  album, genre/mood, dan kategori — jangan membuat layar kedua per jenis halaman.
+  Rak lagu dirender dengan `Column`, BUKAN `LazyColumn` bersarang: item LazyColumn
+  induk diukur dengan tinggi tak terbatas sehingga scrollable searah akan crash.
+
 ## 5. Internasionalisasi
 
 - 6 berkas `strings.xml`: `values` (id, default), `values-en`, `values-hi`, `values-ja`,

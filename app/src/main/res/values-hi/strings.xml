@@ -193,6 +193,11 @@
     <string name="widget_description">होम स्क्रीन से ही Lyreon प्लेबैक नियंत्रित करें।</string>
     <string name="widget_empty_title">कुछ नहीं चल रहा</string>
     <string name="widget_play_pause">चलाएँ या रोकें</string>
+    <string name="browse_kicker">ब्राउज़</string>
+    <string name="browse_empty_title">यह पेज खाली है</string>
+    <string name="browse_empty_body">YouTube ने इस पेज के लिए कोई शेल्फ़ नहीं लौटाया। कुछ देर बाद फिर कोशिश करें।</string>
+    <string name="browse_genres_title">शैलियाँ और मूड</string>
+    <string name="browse_genres_body">InnerTube से सीधे लिए गए YouTube Music के आधिकारिक शेल्फ़ को शैली और मूड के अनुसार ब्राउज़ करें।</string>
     <string name="language_label">ऐप की भाषा</string>
     <string name="clear_history_title">सुनने का इतिहास साफ़ करें</string>
     <string name="clear_history_body">हाल ही में चलाए गए रिकॉर्ड हटाता है (पसंदीदा और प्लेलिस्ट सुरक्षित)।</string>

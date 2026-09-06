@@ -193,6 +193,11 @@
     <string name="widget_description">Control Lyreon playback right from your home screen.</string>
     <string name="widget_empty_title">Nothing playing</string>
     <string name="widget_play_pause">Play or pause</string>
+    <string name="browse_kicker">BROWSE</string>
+    <string name="browse_empty_title">This page is empty</string>
+    <string name="browse_empty_body">YouTube returned no shelves for this page. Try again in a moment.</string>
+    <string name="browse_genres_title">Genres &amp; Moods</string>
+    <string name="browse_genres_body">Browse official YouTube Music shelves by genre and mood, mapped straight from InnerTube.</string>
     <string name="language_label">App language</string>
     <string name="clear_history_title">Clear listening history</string>
     <string name="clear_history_body">Deletes your Recently Played records (favorites &amp; playlists are safe).</string>

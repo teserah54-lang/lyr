@@ -193,6 +193,11 @@
     <string name="widget_description">Kawal main balik Lyreon terus dari skrin utama.</string>
     <string name="widget_empty_title">Tiada yang dimainkan</string>
     <string name="widget_play_pause">Main atau jeda</string>
+    <string name="browse_kicker">LAYARI</string>
+    <string name="browse_empty_title">Halaman ini kosong</string>
+    <string name="browse_empty_body">YouTube tidak mengembalikan rak untuk halaman ini. Cuba lagi sebentar.</string>
+    <string name="browse_genres_title">Genre &amp; Mood</string>
+    <string name="browse_genres_body">Layari rak rasmi YouTube Music mengikut genre dan mood, dipetakan terus dari InnerTube.</string>
     <string name="language_label">Bahasa aplikasi</string>
     <string name="clear_history_title">Kosongkan sejarah pendengaran</string>
     <string name="clear_history_body">Memadam rekod Baru Dimainkan (kegemaran &amp; senarai main selamat).</string>

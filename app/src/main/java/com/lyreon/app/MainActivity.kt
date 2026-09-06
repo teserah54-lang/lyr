@@ -91,6 +91,8 @@ import com.lyreon.app.ui.screens.DownloadsScreen
 import com.lyreon.app.ui.screens.EditorialDetailScreen
 import com.lyreon.app.ui.screens.HomeScreen
 import com.lyreon.app.ui.screens.LibraryScreen
+import com.lyreon.app.ui.screens.BrowseScreen
+import com.lyreon.app.ui.vm.BrowseViewModel
 import com.lyreon.app.ui.screens.LicensesScreen
 import com.lyreon.app.ui.screens.NowPlayingScreen
 import com.lyreon.app.ui.screens.PlaylistDetailScreen
@@ -570,6 +572,9 @@ private fun LyreonNavHost(
                 likedIds = likedIds,
                 downloadedIds = downloadedIds,
                 onOpenEditorial = { navController.navigate("editorial/${it.id}") },
+                onOpenBrowse = { id, name ->
+                    navController.navigate("browse/$id?title=${Uri.encode(name)}")
+                },
                 onSearchClick = {
                     navController.navigate("search") {
                         popUpTo(navController.graph.findStartDestination().id) { saveState = true }
@@ -634,6 +639,9 @@ private fun LyreonNavHost(
             ArchiveScreen(
                 playerState = playerState,
                 onOpenEditorial = { navController.navigate("editorial/${it.id}") },
+                onOpenBrowse = { id, name ->
+                    navController.navigate("browse/$id?title=${Uri.encode(name)}")
+                },
                 onPlayMovement = { playMovement(it.searchQuery) },
             )
         }
@@ -653,6 +661,40 @@ private fun LyreonNavHost(
             SettingsScreen(
                 vm = vm,
                 onOpenLicenses = { navController.navigate("licenses") { launchSingleTop = true } },
+            )
+        }
+
+        composable(
+            route = "browse/{browseId}?title={title}&params={params}",
+            arguments = listOf(
+                navArgument("browseId") { type = NavType.StringType },
+                navArgument("title") { type = NavType.StringType; defaultValue = "" },
+                navArgument("params") { type = NavType.StringType; defaultValue = "" },
+            ),
+        ) { entry ->
+            val browseId = entry.arguments?.getString("browseId").orEmpty()
+            val title = entry.arguments?.getString("title").orEmpty()
+            val params = entry.arguments?.getString("params").orEmpty()
+            val vm: BrowseViewModel = lyreonViewModel(key = "browse_$browseId$params") {
+                BrowseViewModel(it, browseId, params)
+            }
+            BrowseScreen(
+                vm = vm,
+                fallbackTitle = title,
+                playerState = playerState,
+                likedIds = likedIds,
+                downloadedIds = downloadedIds,
+                onBack = { navController.popBackStack() },
+                onPlayQueue = { tracks, index -> player.playQueue(tracks, index) },
+                onLike = onLike,
+                onTrackMore = onMore,
+                onOpenBrowse = { id, name ->
+                    navController.navigate("browse/$id?title=${Uri.encode(name)}")
+                },
+                onOpenPlaylist = { playlistId ->
+                    val url = "https://music.youtube.com/playlist?list=$playlistId"
+                    navController.navigate("ytplaylist/${Uri.encode(url)}")
+                },
             )
         }
 

@@ -881,6 +881,8 @@ class YouTubeRepository {
         val name: String,
         val thumbUrl: String,
         val subtitle: String,
+        /** browseId kanal artis (UC…) — kosong berarti halaman artis tidak tersedia. */
+        val browseId: String = "",
     )
 
     /** Wilayah kartu artis di tab Search (label di-UI per bahasa). */
@@ -993,6 +995,10 @@ class YouTubeRepository {
                     val name = textOf(flex.optJSONObject(0), "musicResponsiveListItemFlexColumnRenderer")
                     if (name.isBlank()) continue
                     val sub = textOf(flex.optJSONObject(1), "musicResponsiveListItemFlexColumnRenderer")
+                    val artistBrowseId = row.optJSONObject("navigationEndpoint")
+                        ?.optJSONObject("browseEndpoint")
+                        ?.optString("browseId")
+                        .orEmpty()
                     val thumbs = row.optJSONObject("thumbnail")
                         ?.optJSONObject("musicThumbnailRenderer")
                         ?.optJSONObject("thumbnail")
@@ -1009,7 +1015,7 @@ class YouTubeRepository {
                             }
                         }
                     }
-                    out += ArtistCard(name = name, thumbUrl = thumb, subtitle = sub)
+                    out += ArtistCard(name = name, thumbUrl = thumb, subtitle = sub, browseId = artistBrowseId)
                     if (out.size >= 12) break
                 }
                 if (out.isNotEmpty()) return out
@@ -1129,5 +1135,90 @@ class YouTubeRepository {
                 }
             }
         }.awaitAll()
+    }
+
+    // ------------------------------------------------------------------
+    // Browse generik — halaman artis, album, genre/mood (gelombang 6)
+    //
+    //   POST /youtubei/v1/browse?key=…  { browseId, params?, gl }
+    //
+    // Bentuk responsnya beragam (rak baris, carousel kartu, grid), jadi
+    // penguraiannya dipisah ke [BrowseParser] yang murni dan bebas Android.
+    // Hasil di-cache 6 jam seperti charts: halaman artis tidak berubah cepat,
+    // dan ini membuat navigasi bolak-balik terasa instan.
+    // ------------------------------------------------------------------
+
+    private val browseLock = Any()
+
+    /** Umur cache halaman browse: 6 jam, sama seperti cache charts. */
+    private val BROWSE_CACHE_MS = 6L * 3600_000L
+    private val browseCache = HashMap<String, Pair<Long, BrowsePage>>()
+
+    /**
+     * Ambil satu halaman browse. Kegagalan jaringan/parse menghasilkan
+     * [BrowsePage] kosong (bukan exception) supaya layar cukup menampilkan
+     * keadaan kosong dengan tombol coba lagi.
+     *
+     * @param browseId id kanal artis (UC…), "FEmusic_moods_and_genres",
+     *   "FEmusic_moods_and_genres_category", "VL"+playlistId, dsb.
+     * @param params token tambahan (dipakai kategori genre/mood)
+     */
+    suspend fun browsePage(browseId: String, params: String? = null, gl: String = "US"): BrowsePage =
+        withContext(Dispatchers.IO) {
+            val cacheKey = "$browseId|${params.orEmpty()}|$gl"
+            synchronized(browseLock) {
+                browseCache[cacheKey]?.takeIf { System.currentTimeMillis() - it.first < BROWSE_CACHE_MS }
+            }?.let { return@withContext it.second }
+
+            val page = runCatching { fetchBrowsePage(browseId, params, gl) }
+                .getOrElse { err ->
+                    Log.w(TAG, "browsePage($browseId) gagal: ${err.message}")
+                    BrowsePage(browseId = browseId)
+                }
+            if (!page.isEmpty) {
+                synchronized(browseLock) { browseCache[cacheKey] = System.currentTimeMillis() to page }
+            }
+            page
+        }
+
+    /** Hapus cache browse (dipanggil saat pengguna membersihkan cache aplikasi). */
+    fun clearBrowseCache() {
+        synchronized(browseLock) { browseCache.clear() }
+    }
+
+    private fun fetchBrowsePage(browseId: String, params: String?, gl: String): BrowsePage {
+        val key = fetchInnertubeKey()
+        val payload = JSONObject()
+            .put(
+                "context",
+                JSONObject().put(
+                    "client",
+                    JSONObject()
+                        .put("clientName", "WEB_REMIX")
+                        .put("clientVersion", "1.20260804.01.00")
+                        .put("hl", "en")
+                        .put("gl", gl),
+                ),
+            )
+            .put("browseId", browseId)
+            .apply { if (!params.isNullOrBlank()) put("params", params) }
+            .toString()
+            .toRequestBody("application/json".toMediaType())
+
+        val req = Request.Builder()
+            .url("https://music.youtube.com/youtubei/v1/browse?key=$key")
+            .header("User-Agent", LyreonHttp.USER_AGENT)
+            .header("Origin", "https://music.youtube.com")
+            .post(payload)
+            .build()
+
+        val root = LyreonHttp.streamClient.newCall(req).execute().use { resp ->
+            if (!resp.isSuccessful) {
+                Log.w(TAG, "fetchBrowsePage($browseId): HTTP ${resp.code}")
+                return BrowsePage(browseId = browseId)
+            }
+            JSONObject(resp.body.string())
+        }
+        return BrowseParser.parse(root, browseId)
     }
 }

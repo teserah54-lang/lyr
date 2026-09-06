@@ -193,6 +193,11 @@
     <string name="widget_description">ホーム画面から直接Lyreonの再生を操作できます。</string>
     <string name="widget_empty_title">再生中の曲はありません</string>
     <string name="widget_play_pause">再生または一時停止</string>
+    <string name="browse_kicker">ブラウズ</string>
+    <string name="browse_empty_title">このページは空です</string>
+    <string name="browse_empty_body">YouTubeはこのページの内容を返しませんでした。しばらくしてから再試行してください。</string>
+    <string name="browse_genres_title">ジャンルとムード</string>
+    <string name="browse_genres_body">InnerTubeから直接取得したYouTube Music公式のジャンル・ムード別シェルフを閲覧できます。</string>
     <string name="language_label">アプリの言語</string>
     <string name="clear_history_title">再生履歴を消去</string>
     <string name="clear_history_body">最近再生の記録を削除します（お気に入り・プレイリストは保持されます）。</string>

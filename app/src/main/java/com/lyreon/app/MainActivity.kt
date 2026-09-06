@@ -728,6 +728,7 @@ private fun LyreonNavHost(
                 },
                 onPlayAt = player::playAt,
                 onRemoveQueueItem = player::removeAt,
+                onMoveQueueItem = player::moveItem,
             )
         }
 

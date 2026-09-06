@@ -774,6 +774,18 @@ class PlayerManager(
     // Perintah publik
     // ------------------------------------------------------------------
 
+    /**
+     * Pindahkan lagu dalam antrean (reorder). Indeks di luar rentang diabaikan —
+     * antrean bisa berubah dari notifikasi/Widget di saat bersamaan.
+     */
+    fun moveItem(from: Int, to: Int) {
+        val c = controller ?: return
+        if (from == to) return
+        val count = c.mediaItemCount
+        if (from !in 0 until count || to !in 0 until count) return
+        c.moveMediaItem(from, to)
+    }
+
     fun playQueue(tracks: List<LyreonTrack>, startIndex: Int = 0, autoplay: Boolean = true) {
         if (tracks.isEmpty()) return
         tracks.forEach { registry[it.videoId] = it }

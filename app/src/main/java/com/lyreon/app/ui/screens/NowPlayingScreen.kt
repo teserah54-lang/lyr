@@ -36,6 +36,8 @@ import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Lyrics
 import androidx.compose.material.icons.filled.PlaylistAdd
@@ -129,6 +131,7 @@ fun NowPlayingScreen(
     onShare: () -> Unit,
     onPlayAt: (Int) -> Unit,
     onRemoveQueueItem: (Int) -> Unit,
+    onMoveQueueItem: (Int, Int) -> Unit,
     onSetVideoMode: (Boolean) -> Unit,
     onSeekMs: (Long) -> Unit,
     modifier: Modifier = Modifier,
@@ -579,8 +582,40 @@ fun NowPlayingScreen(
                                     overflow = TextOverflow.Ellipsis,
                                 )
                             }
+                            // Ubah urutan antrean (wishlist #15): naik/turun satu langkah.
+                            IconButton(
+                                onClick = { if (index > 0) onMoveQueueItem(index, index - 1) },
+                                enabled = index > 0,
+                                modifier = Modifier.size(32.dp),
+                            ) {
+                                Icon(
+                                    Icons.Filled.KeyboardArrowUp,
+                                    contentDescription = stringResource(R.string.move_up),
+                                    tint = if (index > 0) LyreonTextSecondary else LyreonSurface,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            }
+                            IconButton(
+                                onClick = {
+                                    if (index < playerState.queue.lastIndex) onMoveQueueItem(index, index + 1)
+                                },
+                                enabled = index < playerState.queue.lastIndex,
+                                modifier = Modifier.size(32.dp),
+                            ) {
+                                Icon(
+                                    Icons.Filled.KeyboardArrowDown,
+                                    contentDescription = stringResource(R.string.move_down),
+                                    tint = if (index < playerState.queue.lastIndex) LyreonTextSecondary else LyreonSurface,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            }
                             if (active) {
-                                Text(stringResource(R.string.common_playing), style = MaterialTheme.typography.labelSmall, color = LyreonCrimson)
+                                Icon(
+                                    Icons.Filled.GraphicEq,
+                                    contentDescription = stringResource(R.string.common_playing),
+                                    tint = LyreonCrimson,
+                                    modifier = Modifier.size(18.dp),
+                                )
                             } else {
                                 IconButton(onClick = { onRemoveQueueItem(index) }, modifier = Modifier.size(32.dp)) {
                                     Icon(

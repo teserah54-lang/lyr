@@ -195,6 +195,26 @@ relevan sebagai pencegah.
 
 ---
 
+### B6. Glob di dalam komentar blok menelan seluruh berkas (gelombang 2)
+
+- **Gejala:** CI gagal dengan puluhan `Syntax error: Expecting a top level
+  declaration` yang mulai di tengah berkas (`KuGouProvider.kt:199`), plus
+  `Unresolved reference` di berkas lain. Tidak ada satu pun error di baris awal
+  berkas — membingungkan.
+- **Sebab:** header atribusi menulis `kugou/.../models/*.kt`. **Komentar blok
+  Kotlin BERSARANG**: `/*` di dalam `/* … */` menaikkan kedalaman, jadi `*/`
+  penutup header hanya menurunkan kedalaman ke 1 dan seluruh isi berkas (sampai
+  `*/` pertama di KDoc berikutnya) ikut jadi komentar. Kode baru "mulai" di titik
+  acak → parser melaporkan error jauh dari penyebabnya.
+- **Perbaikan:** jangan pernah menulis `*/` atau `/*` di dalam komentar — ganti
+  glob dengan daftar eksplisit (`models/ (Keyword, SearchSongResponse, …)`).
+- **Pencegah:** sebelum commit, jalankan pemindai berikut (menemukan `/*` atau
+  `*/` di tengah baris komentar):
+  ```bash
+  grep -rn '^\s*\*.*\(/\*\|\*/\)' --include=*.kt app/src | grep -vE ':\s*\*/\s*$'
+  ```
+  Aturan umum: path/glob di dalam KDoc ditulis tanpa karakter bintang ganda.
+
 ## C. Daftar periksa cepat sebelum menyimpulkan "ini salah YouTube"
 
 1. `visitor=` di SALIN DIAGNOSTIK bukan `-`? Kalau `-`, perbaiki itu dulu.

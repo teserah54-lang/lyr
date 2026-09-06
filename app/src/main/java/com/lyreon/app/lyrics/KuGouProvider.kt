@@ -5,7 +5,8 @@
  *
  * Diadaptasi dari FrancescoGrazioso/Meld (GPL-3.0):
  *   kugou/src/main/kotlin/com/metrolist/kugou/KuGou.kt
- *   kugou/src/main/kotlin/com/metrolist/kugou/models/*.kt
+ *   kugou/src/main/kotlin/com/metrolist/kugou/models/ (Keyword, SearchSongResponse,
+ *   SearchLyricsResponse, DownloadLyricsResponse)
  *   app/src/main/kotlin/com/metrolist/music/lyrics/KuGouLyricsProvider.kt
  * Metrolist Project (C) 2026 — lihat riwayat git upstream untuk kontributor.
  *

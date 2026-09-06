@@ -112,28 +112,81 @@ class LyreonDownloadManager(
 
     private class CancelledDownload : IOException()
 
+    /**
+     * Unduh satu lagu ke penyimpanan app.
+     *
+     * Dua jalur, satu hasil (satu file utuh):
+     *  - **progresif** (URL langsung) → salin response HTTP apa adanya;
+     *  - **manifest HLS** → ambil init segment + seluruh segmen lalu satukan
+     *    ([HlsFlatDownloader]). Jalur ini yang membuat lagu "HLS-only" — kasus
+     *    yang makin sering terjadi untuk pengguna anonim — tetap bisa diunduh.
+     */
     private suspend fun downloadTrack(entry: DownloadEntity): File = withContext(Dispatchers.IO) {
-        // Unduhan menulis satu file: manifest HLS tidak bisa diunduh lewat jalur ini,
-        // jadi hanya stream progresif yang diterima (allowManifest = false).
-        val resolved = locator.youtube.resolveCachedBlocking(entry.videoId, allowManifest = false)
-        val suffix = resolved.suffix.ifBlank { "m4a" }
-        val outFile = File(downloadsDir, "${entry.videoId}.$suffix")
+        val resolved = locator.youtube.resolveCachedBlocking(entry.videoId)
         // hapus varian lama dengan ekstensi berbeda
         downloadsDir.listFiles { f -> f.name.startsWith("${entry.videoId}.") }
             ?.forEach { it.delete() }
         val tmp = File(downloadsDir, "${entry.videoId}.part")
+        val dao = locator.db.downloadDao()
 
-        val request = Request.Builder().url(resolved.url).get().build()
+        val suffix = if (resolved.isManifest) {
+            var lastPush = 0L
+            val result = HlsFlatDownloader.downloadFlat(
+                client = LyreonHttp.streamClient,
+                manifestUrl = resolved.url,
+                target = tmp,
+                isCancelled = { dao.byIdOnce(entry.videoId)?.state == DownloadState.CANCELED },
+                onProgress = { done, estimated, _, _ ->
+                    val now = System.currentTimeMillis()
+                    if (now - lastPush > 400L) {
+                        lastPush = now
+                        dao.upsert(
+                            entry.copy(
+                                state = DownloadState.DOWNLOADING,
+                                bytesTotal = estimated,
+                                bytesDone = done,
+                            ),
+                        )
+                        onProgressSafe(estimated, done, entry.title)
+                    }
+                },
+            )
+            // Wadah hasil gabungan segmen: fMP4 → .mp4, MPEG-TS → .ts
+            result.container.suffix
+        } else {
+            writeProgressive(entry, resolved.url, resolved.fallbackUrl, tmp)
+            resolved.suffix.ifBlank { "m4a" }
+        }
+
+        val outFile = File(downloadsDir, "${entry.videoId}.$suffix")
+        if (!tmp.renameTo(outFile)) {
+            tmp.copyTo(outFile, overwrite = true)
+            tmp.delete()
+        }
+        outFile
+    }
+
+    /**
+     * Salin satu URL progresif ke [tmp] dengan laporan progres + cek pembatalan.
+     * Bila URL utama ditolak (403/404/429) dan ada kandidat dari keluarga format
+     * lain, kandidat itu dicoba sebelum menyerah.
+     */
+    private suspend fun writeProgressive(
+        entry: DownloadEntity,
+        url: String,
+        fallbackUrl: String?,
+        tmp: File,
+    ) {
+        val dao = locator.db.downloadDao()
+        val request = Request.Builder().url(url).get().build()
         var response = LyreonHttp.streamClient.newCall(request).execute()
-        // Stream cadangan: saat URL utama 403/404/429, coba kandidat ke-2
-        // dari keluarga format lain sebelum memutuskan gagal.
         if (!response.isSuccessful &&
             response.code in intArrayOf(403, 404, 429) &&
-            !resolved.fallbackUrl.isNullOrBlank()
+            !fallbackUrl.isNullOrBlank()
         ) {
             response.close()
             response = LyreonHttp.streamClient.newCall(
-                Request.Builder().url(resolved.fallbackUrl!!).get().build(),
+                Request.Builder().url(fallbackUrl).get().build(),
             ).execute()
         }
         response.use { resp ->
@@ -143,7 +196,6 @@ class LyreonDownloadManager(
             }
             val body = resp.body
             val total = body.contentLength().takeIf { it > 0 } ?: 0L
-            val dao = locator.db.downloadDao()
 
             tmp.outputStream().buffered().use { out ->
                 body.byteStream().use { input ->
@@ -179,16 +231,7 @@ class LyreonDownloadManager(
                     out.flush()
                 }
             }
-            if (total <= 0L) {
-                // tetap terima — beberapa stream tak mengirim content-length
-            }
         }
-
-        if (!tmp.renameTo(outFile)) {
-            tmp.copyTo(outFile, overwrite = true)
-            tmp.delete()
-        }
-        outFile
     }
 
     private suspend fun onProgressSafe(total: Long, done: Long, title: String?) {

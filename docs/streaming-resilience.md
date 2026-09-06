@@ -97,31 +97,32 @@ ditambahkan (§7). Itu risiko yang dipilih, bukan yang diabaikan.
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
-│ 1. Knob & bypass extractor                                               │
-│    setLoadingTimeout(12) · setFetchDislike(false)                        │
+│ 1. Knob & bypass extractor                                                │
+│    setLoadingTimeout(12) · setFetchDislike(false)                         │
 │    extractor di-bypass 10 menit setelah 2× SABR beruntun (hemat latensi)  │
 ├──────────────────────────────────────────────────────────────────────────┤
-│ 2. Tangga klien ANONIM (PlayerClientLadder)                              │
-│    visionos → web_embedded → tv_downgraded → tv → android_vr             │
-│      → web_safari(HLS) → tv_simply(HLS)                                  │
+│ 2. Tangga klien ANONIM (PlayerClientLadder)                               │
+│    visionos → web_embedded → tv_downgraded → tv → android_vr              │
+│      → web_safari(HLS) → tv_simply(HLS)                                   │
 │    + pembanding diagnostik: visionos_app, ios, android, web, web_remix,   │
-│      mweb (butuh poToken → tidak dipakai memutar)                        │
+│      mweb (butuh poToken → tidak dipakai memutar)                         │
 │    deteksi SABR-only / HLS-only / DRM / playability · urutan adaptif ·    │
-│    cooldown 3 menit · signatureTimestamp (STS) dari ytcfg                │
+│    cooldown 3 menit · signatureTimestamp (STS) dari ytcfg                 │
 ├──────────────────────────────────────────────────────────────────────────┤
-│ 3. Pemutaran HLS (media3-exoplayer-hls)                                  │
+│ 3. Pemutaran HLS (media3-exoplayer-hls)                                   │
 │    ResolvedAudio.isManifest → HlsRequiredException → MediaItem ditukar    │
 │    ke URL m3u8 + MIME → HlsMediaSource · track video dimatikan (hemat)    │
 │    lagu berikutnya disiapkan lebih dulu oleh warmUpcoming()               │
+│    unduhan: HlsFlatDownloader (init + segmen → satu file, tanpa FFmpeg)   │
 ├──────────────────────────────────────────────────────────────────────────┤
-│ 4. Circuit breaker berbasis bukti                                        │
-│    reset HANYA setelah posisi maju ≥ 8 s · rem burst (>4 skip/30 s)      │
+│ 4. Circuit breaker berbasis bukti                                         │
+│    reset HANYA setelah posisi maju ≥ 8 s · rem burst (>4 skip/30 s)       │
 │    saat trip: antrean DIPERTAHANKAN · pesan actionable · radio ditahan    │
 ├──────────────────────────────────────────────────────────────────────────┤
-│ 5. Diagnostik & radar                                                    │
+│ 5. Diagnostik & radar                                                     │
 │    Tes koneksi (verdict + ms per klien) · SALIN DIAGNOSTIK · RESET        │
 │    logcat: LyreonStreamHealth / PlayerClientLadder / InnertubeFallback    │
-│    tools/ci/extractor-radar.sh (+ workflow bila izin tersedia)           │
+│    tools/ci/extractor-radar.sh (+ workflow bila izin tersedia)            │
 └──────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -137,6 +138,7 @@ ditambahkan (§7). Itu risiko yang dipilih, bukan yang diabaikan.
 | `player/ResolvingDataSource.kt` | resolusi malas `lyreon://`; melempar `HlsRequiredException` |
 | `player/PlayerManager.kt` | `StreamHealth`, breaker, penukaran item ke HLS, warm-up antrean |
 | `ui/screens/SettingsScreen.kt` | panel Kesehatan stream (tes, salin, reset) |
+| `download/HlsFlatDownloader.kt` | manifest HLS → satu file (untuk unduhan offline) |
 | `tools/ci/extractor-radar.sh` | cek drift pin extractor dari mesin lokal |
 
 ## 5. Runbook: "semua lagu gagal lagi"
@@ -198,6 +200,7 @@ lalu satu baris `breaker TERBUKA` — bukan puluhan skip tanpa akhir.
 | 2026-08 | `TVHTML5_SIMPLY_EMBEDDED_PLAYER` (id 85) mati: *"YouTube is no longer supported in this application or device"* | dibuang, diganti `WEB_EMBEDDED_PLAYER` (id 56) + `thirdParty.embedUrl` non-YouTube |
 | 2026-09 | `web`/`web_remix`/`mweb` membalas `UNPLAYABLE` tanpa poToken | ditandai `requiresPoToken` → diagnostik saja |
 | 2026-09 | Bentuk `visionos` PipePipe (UA app-style, endpoint googleapis) tidak membalas stream | diganti bentuk yt-dlp: UA Safari desktop, `RealityDevice17,1`, osVersion `26.5.23O471`, host `www.youtube.com` |
+| 2026-09 | Lagu yang hanya punya HLS tidak bisa diunduh sama sekali | `HlsFlatDownloader`: segmen disatukan jadi satu file fMP4/TS + verifikasi wadah |
 
 ## 6. Privasi
 
@@ -238,10 +241,17 @@ Terhalang tiga syarat di §7.2. Sebagai catatan hidup: HEAD mereka 2026-09-03,
 push terakhir 2026-09-05 — aktif, jadi opsi ini tetap layak dipantau lewat
 `tools/ci/extractor-radar.sh`.
 
-### 7.4 Unduhan dari manifest HLS
-`DownloadManager` hanya menulis file progresif, jadi `allowManifest = false` di
-jalur unduhan. Mendukung unduhan HLS berarti mengunduh semua segmen lalu
-menggabungnya (muxing) — pekerjaan tersendiri.
+### 7.4 ~~Unduhan dari manifest HLS~~ — SELESAI
+`HlsFlatDownloader` mengambil init segment + seluruh segmen lalu menyatukannya
+menjadi satu file (fMP4 → `.mp4`, MPEG-TS → `.ts`), dengan verifikasi bait
+pertama supaya berkas rusak tidak pernah disimpan. Tanpa FFmpeg: segmen HLS
+memang bisa disambung apa adanya.
+
+Catatan mutu: HLS YouTube umumnya *muxed* (video+audio dalam satu varian), jadi
+file hasil unduhan lagu HLS-only lebih besar daripada unduhan audio murni
+(bisa 4–8×). Varian ber-bandwidth terendah yang masih layak (≥ 400 kbps) dipilih
+untuk menekan ukuran. Bila ini terasa mahal, alternatifnya adalah menolak unduhan
+untuk lagu HLS-only dan memberi pesan yang jelas — keputusan produk, bukan teknis.
 
 ## 8. Kebijakan pin extractor
 

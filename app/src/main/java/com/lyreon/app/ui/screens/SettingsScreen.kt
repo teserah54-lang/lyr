@@ -156,6 +156,22 @@ fun SettingsScreen(
                     selected = settings.audioQuality,
                     onSelect = vm::setQuality,
                 )
+                Spacer(Modifier.height(14.dp))
+                ToggleRow(
+                    title = stringResource(R.string.skip_silence_title),
+                    body = stringResource(R.string.skip_silence_body),
+                    checked = settings.skipSilence,
+                    onChange = vm::setSkipSilence,
+                )
+                if (settings.skipSilence) {
+                    Spacer(Modifier.height(14.dp))
+                    ToggleRow(
+                        title = stringResource(R.string.skip_silence_instant_title),
+                        body = stringResource(R.string.skip_silence_instant_body),
+                        checked = settings.skipSilenceInstant,
+                        onChange = vm::setSkipSilenceInstant,
+                    )
+                }
             }
         }
 

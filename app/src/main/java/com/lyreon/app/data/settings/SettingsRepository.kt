@@ -8,6 +8,7 @@ package com.lyreon.app.data.settings
 import android.content.Context
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -44,6 +45,14 @@ data class LyreonSettings(
     val lyricsOffsetMs: Int = 0,
     /** Provider lirik KuGou sebagai cadangan setelah LRCLIB. */
     val kugouEnabled: Boolean = true,
+    /** Buang keheningan dari audio (processor SilenceSkippingAudioProcessor media3). */
+    val skipSilence: Boolean = false,
+    /** Mode agresif: lompat maju bila keheningan panjang tetap terdengar. */
+    val skipSilenceInstant: Boolean = false,
+    /** Kecepatan putar (0.5×–2.0×). */
+    val playbackSpeed: Float = 1f,
+    /** Geser nada dalam semitone (-12..+12); 0 = nada asli. */
+    val pitchSemitones: Int = 0,
 )
 
 class SettingsRepository(private val context: Context) {
@@ -59,6 +68,10 @@ class SettingsRepository(private val context: Context) {
         val DYNAMIC_COLOR = booleanPreferencesKey("dynamic_color")
         val LYRICS_OFFSET_MS = intPreferencesKey("lyrics_offset_ms")
         val KUGOU_ENABLED = booleanPreferencesKey("kugou_enabled")
+        val SKIP_SILENCE = booleanPreferencesKey("skip_silence")
+        val SKIP_SILENCE_INSTANT = booleanPreferencesKey("skip_silence_instant")
+        val PLAYBACK_SPEED = floatPreferencesKey("playback_speed")
+        val PITCH_SEMITONES = intPreferencesKey("pitch_semitones")
     }
 
     val settings: Flow<LyreonSettings> = context.lyreonDataStore.data.map { prefs ->
@@ -76,6 +89,10 @@ class SettingsRepository(private val context: Context) {
             dynamicColor = prefs[Keys.DYNAMIC_COLOR] ?: false,
             lyricsOffsetMs = prefs[Keys.LYRICS_OFFSET_MS] ?: 0,
             kugouEnabled = prefs[Keys.KUGOU_ENABLED] ?: true,
+            skipSilence = prefs[Keys.SKIP_SILENCE] ?: false,
+            skipSilenceInstant = prefs[Keys.SKIP_SILENCE_INSTANT] ?: false,
+            playbackSpeed = (prefs[Keys.PLAYBACK_SPEED] ?: 1f).coerceIn(0.5f, 2f),
+            pitchSemitones = (prefs[Keys.PITCH_SEMITONES] ?: 0).coerceIn(-12, 12),
         )
     }
 
@@ -118,5 +135,23 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setKugouEnabled(value: Boolean) {
         context.lyreonDataStore.edit { it[Keys.KUGOU_ENABLED] = value }
+    }
+
+    suspend fun setSkipSilence(value: Boolean) {
+        context.lyreonDataStore.edit { it[Keys.SKIP_SILENCE] = value }
+    }
+
+    suspend fun setSkipSilenceInstant(value: Boolean) {
+        context.lyreonDataStore.edit { it[Keys.SKIP_SILENCE_INSTANT] = value }
+    }
+
+    /** Kecepatan dibulatkan ke langkah 0.05 lalu dijepit 0.5×–2.0×. */
+    suspend fun setPlaybackSpeed(value: Float) {
+        val snapped = (kotlin.math.round(value * 20f) / 20f).coerceIn(0.5f, 2f)
+        context.lyreonDataStore.edit { it[Keys.PLAYBACK_SPEED] = snapped }
+    }
+
+    suspend fun setPitchSemitones(value: Int) {
+        context.lyreonDataStore.edit { it[Keys.PITCH_SEMITONES] = value.coerceIn(-12, 12) }
     }
 }

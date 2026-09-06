@@ -188,6 +188,15 @@ header hak cipta asal + komentar path sumber. Yang sudah dipakai:
 | `ui/component/OriginalLyrics.kt` (perilaku, bukan berkas) | `ui/components/LyricsSheet.kt` | diambil: `findCurrentLineIndex`, `performSmoothPageScroll` (memusatkan baris aktif), `NestedScrollConnection` yang menjeda auto-scroll lalu lanjut setelah `LyricsPreviewTime` 2 dtk, konstanta durasi (initial 800 / seek 600 / auto 1500 ms), ketuk baris = seek + auto-scroll aktif lagi. **Tidak** diambil: terjemahan AI (DeepL/OpenRouter), romanisasi, ekspor gambar lirik, mode seleksi, BetterLyrics/TTML per kata, palette artwork |
 | `viewmodels/LyricsViewModel.kt` (ide offset per lagu) | `SettingsRepository.lyricsOffsetMs` + footer `LyricsSheet` | offset global ±10 dtk, langkah 500 ms |
 
+### 4c. Porting audio (gelombang 3)
+
+| Dari Meld (GPL-3.0) | Ke Lyreon | Catatan adaptasi |
+|---|---|---|
+| `playback/audio/SilenceDetectorAudioProcessor.kt` | `player/audio/SilenceDetectorAudioProcessor.kt` | disalin hampir apa adanya; `reset()` tidak lagi ditandai usang (di media3 1.10.1 hanya `flush()` yang `@Deprecated`) |
+| `MusicService.createRenderersFactory` | `PlaybackService.buildRenderersFactory` | signature media3 1.10.1: `buildAudioSink(Context, Boolean enableFloatOutput, Boolean enableAudioOutputPlaybackParams): AudioSink?`, builder memakai `setEnableAudioOutputPlaybackParameters`, dan `SonicAudioProcessor` pindah ke `androidx.media3.common.audio`; `SilenceSkippingAudioProcessor(long, long, short)` → ambang harus `.toShort()` |
+| `MusicService.handleLongSilenceDetected` + `performInstantSilenceSkip` | `PlaybackService` (nama sama) | konstanta dipertahankan: debounce 200 ms, langkah 15 dtk, maks 80 lompatan, guard ekor 500 ms, settle 300 ms. Timber diganti tanpa log |
+| `MusicService.setupLoudnessEnhancer` (normalisasi) | **belum** — rencana gelombang 3b | gain `(-loudnessDb * 100)` mB dijepit −1500..+300; Lyreon perlu menyimpan `loudnessDb`/`perceptualLoudnessDb` dari respons InnerTube dulu |
+
 Sumber posisi: `PlayerManager.positionNow()` (baca `MediaController.currentPosition`
 langsung, poll 50 ms) — mengikuti cara Meld membaca `playerConnection.player.currentPosition`
 di loop lirik alih-alih berlangganan ticker UI 500 ms.

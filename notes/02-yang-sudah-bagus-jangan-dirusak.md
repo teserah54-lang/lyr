@@ -92,6 +92,21 @@ Invarian tambahan yang mudah terlewat:
   harus dipakai dua arah: `posisi + offset` untuk highlight, `waktuBaris - offset`
   untuk seek.
 
+### 4c. Fitur audio hidup di PlaybackService, bukan di UI
+
+- Hanya `PlaybackService` yang memegang `ExoPlayer`; UI cuma punya `MediaController`.
+  Jadi kecepatan/nada/lewati-hening **diterapkan di service** dengan mengoleksi flow
+  `settings` (`observeAudioSettings`) — jangan mencoba mengatur pitch dari UI lewat
+  controller (MediaController tidak punya API pitch).
+- Rantai processor audio wajib mempertahankan urutan: detektor hening Lyreon →
+  `SilenceSkippingAudioProcessor` → `SonicAudioProcessor`. Membuang `SonicAudioProcessor`
+  akan **mematikan kecepatan & nada** secara diam-diam.
+- Perubahan media3 (1.10.1) yang sudah diverifikasi dari sumber upstream:
+  `buildAudioSink(Context, Boolean, Boolean)` mengembalikan `AudioSink?`, builder memakai
+  `setEnableAudioOutputPlaybackParameters`, `SonicAudioProcessor` ada di
+  `androidx.media3.common.audio`, dan `SilenceSkippingAudioProcessor(long, long, short)`.
+  Bila menaikkan versi media3, periksa ulang keempatnya sebelum menyentuh file ini.
+
 ## 5. Internasionalisasi
 
 - 6 berkas `strings.xml`: `values` (id, default), `values-en`, `values-hi`, `values-ja`,

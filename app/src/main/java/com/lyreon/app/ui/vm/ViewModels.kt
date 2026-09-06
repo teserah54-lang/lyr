@@ -880,6 +880,22 @@ class SettingsViewModel(private val locator: ServiceLocator) : ViewModel() {
         viewModelScope.launch { locator.settings.setKugouEnabled(v) }
     }
 
+    fun setSkipSilence(v: Boolean) {
+        viewModelScope.launch { locator.settings.setSkipSilence(v) }
+    }
+
+    fun setSkipSilenceInstant(v: Boolean) {
+        viewModelScope.launch { locator.settings.setSkipSilenceInstant(v) }
+    }
+
+    fun setPlaybackSpeed(v: Float) {
+        viewModelScope.launch { locator.settings.setPlaybackSpeed(v) }
+    }
+
+    fun setPitchSemitones(v: Int) {
+        viewModelScope.launch { locator.settings.setPitchSemitones(v) }
+    }
+
     fun clearHistory() {
         viewModelScope.launch { locator.library.clearHistory() }
     }

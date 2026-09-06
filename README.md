@@ -112,6 +112,11 @@ app/src/main/
 │                                # + PlayerClientLadder (klien anonim, deteksi SABR/DRM/HLS)
 ├─ res/                          # mipmap (icon), drawable, values, xml
 └─ AndroidManifest.xml
+
+docs/streaming-resilience.md     # ketahanan streaming anonim: peta kebijakan, runbook, riwayat
+notes/                           # memori proyek: kesalahan & pelajaran, invarian, panduan UI,
+                                 # spesifikasi tema baru, peta fitur, referensi Meld
+tools/ci/                        # extractor-radar.sh, meld-client-radar.sh (drift vs upstream)
 ```
 
 ## 🚀 Persiapan & Build
@@ -260,15 +265,27 @@ migrasi PipePipeExtractor): [`docs/streaming-resilience.md`](docs/streaming-resi
 
 ## 🤝 Kontribusi
 
-1. Fork → buat branch fitur (`git checkout -b feat/...`).
-2. Pastikan `./gradlew :app:assembleDebug` lolos.
-3. PR ke `main` dengan deskripsi jelas.
+1. Baca [`notes/README.md`](notes/README.md) — khususnya
+   [`notes/02`](notes/02-yang-sudah-bagus-jangan-dirusak.md) (invarian yang tidak boleh
+   dirusak) dan [`notes/03`](notes/03-panduan-update-ui.md) (wajib sebelum menyentuh `ui/`).
+2. Fork → buat branch fitur (`git checkout -b feat/...`).
+3. Pastikan `./gradlew :app:assembleDebug` lolos (di CI: workflow *Android Build*).
+4. PR ke `main` dengan deskripsi jelas; string UI baru masuk ke **6** berkas `strings.xml`.
 
 Isu extractor sebaiknya dilaporkan ke upstream [MetrolistExtractor]; isu UI/logika ke repo ini.
 
 ## 📜 Lisensi
 
 Proyek ini dirilis di bawah **MIT License** — lihat file [`LICENSE`](LICENSE).
+
+**Atribusi & catatan lisensi pihak ketiga.** Spesifikasi klien InnerTube, urutan tangga
+stream, sumber `visitorData`, dan pendekatan validasi URL Lyreon mengikuti pengukuran
+[FrancescoGrazioso/Meld](https://github.com/FrancescoGrazioso/Meld) (**GPL-3.0**, fork
+Metrolist). Yang diambil adalah *fakta dan metode* (versi klien, User-Agent, nama header,
+hasil pengukuran) dan diimplementasikan ulang dalam kode Lyreon sendiri — bukan salinan
+kode. Karena perbedaan lisensi (MIT vs GPL-3.0), kebijakan penyalinan kode dari Meld
+dicatat di [`notes/06-referensi-meld.md`](notes/06-referensi-meld.md) §1 dan menunggu
+keputusan pemilik proyek sebelum ada porting fitur berikutnya.
 
 ```
 LYREON © rixz-dev — Hear What Words Can't Say.

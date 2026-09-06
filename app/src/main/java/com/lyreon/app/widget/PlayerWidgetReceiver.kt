@@ -12,15 +12,13 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.view.KeyEvent
 import android.widget.RemoteViews
-import androidx.core.graphics.drawable.toBitmap
-import coil3.ImageRequest
-import coil3.SingletonImageLoader
-import coil3.SuccessResult
-import coil3.request.allowHardware
 import com.lyreon.app.R
 import com.lyreon.app.player.PlaybackService
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -54,7 +52,7 @@ class PlayerWidgetReceiver : AppWidgetProvider() {
         if (snap.artUrl.isBlank()) return
         val pending = goAsync()
         scope.launch {
-            val art = loadArtwork(context, snap.artUrl)
+            val art = loadArtwork(snap.artUrl)
             if (art != null) {
                 appWidgetIds.forEach { id ->
                     runCatching { appWidgetManager.updateAppWidget(id, buildViews(context, snap, art)) }
@@ -68,6 +66,17 @@ class PlayerWidgetReceiver : AppWidgetProvider() {
 
         private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+        private val httpClient by lazy { OkHttpClient() }
+
+        /** Sisi terpanjang artwork widget; cukup untuk kotak 52 dp di layar rapat. */
+        private const val ART_MAX_PX = 256
+
+        @Volatile
+        private var cachedArtUrl: String = ""
+
+        @Volatile
+        private var cachedArt: Bitmap? = null
+
         private const val REQ_OPEN_APP = 10
         private const val REQ_PREV = 11
         private const val REQ_PLAY_PAUSE = 12
@@ -78,7 +87,7 @@ class PlayerWidgetReceiver : AppWidgetProvider() {
             runCatching {
                 val manager = AppWidgetManager.getInstance(context) ?: return
                 val ids = manager.getAppWidgetIds(ComponentName(context, PlayerWidgetReceiver::class.java))
-                if (ids.isNullOrEmpty()) return
+                if (ids.isEmpty()) return
                 val intent = Intent(context, PlayerWidgetReceiver::class.java).apply {
                     action = AppWidgetManager.ACTION_APPWIDGET_UPDATE
                     putExtra(AppWidgetManager.EXTRA_APPWIDGET_IDS, ids)
@@ -137,14 +146,33 @@ class PlayerWidgetReceiver : AppWidgetProvider() {
             )
         }
 
-        private suspend fun loadArtwork(context: Context, url: String): Bitmap? = runCatching {
-            val request = ImageRequest.Builder(context)
-                .data(url)
-                // RemoteViews tidak bisa membawa bitmap perangkat keras.
-                .allowHardware(false)
-                .build()
-            val result = SingletonImageLoader.get(context).execute(request)
-            (result as? SuccessResult)?.drawable?.toBitmap()
-        }.getOrNull()
+        /**
+         * Ambil artwork thumbnail tanpa Coil: RemoteViews butuh Bitmap perangkat
+         * lunak biasa, dan widget hanya menampilkan SATU gambar pada satu waktu,
+         * jadi cache satu-entri di memori sudah cukup dan membuat tombol
+         * putar/jeda tidak mengunduh ulang gambar yang sama.
+         */
+        private fun loadArtwork(url: String): Bitmap? {
+            if (url.isBlank()) return null
+            cachedArt?.let { if (cachedArtUrl == url) return it }
+            val decoded = runCatching {
+                val call = httpClient.newCall(Request.Builder().url(url).build())
+                call.execute().use { response ->
+                    if (!response.isSuccessful) {
+                        null
+                    } else {
+                        response.body?.byteStream()?.let { BitmapFactory.decodeStream(it) }
+                    }
+                }
+            }.getOrNull() ?: return null
+            val art = if (decoded.width > ART_MAX_PX || decoded.height > ART_MAX_PX) {
+                runCatching { Bitmap.createScaledBitmap(decoded, ART_MAX_PX, ART_MAX_PX, true) }.getOrDefault(decoded)
+            } else {
+                decoded
+            }
+            cachedArtUrl = url
+            cachedArt = art
+            return art
+        }
     }
 }

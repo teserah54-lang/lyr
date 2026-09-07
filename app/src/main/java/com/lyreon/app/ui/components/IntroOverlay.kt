@@ -1,8 +1,15 @@
+/*
+ * Copyright (C) 2026 rixz-dev
+ *
+ * SPDX-License-Identifier: GPL-3.0-only
+ */
 package com.lyreon.app.ui.components
 
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.getValue
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -19,10 +26,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -37,6 +42,9 @@ import com.lyreon.app.ui.theme.LyreonCrimson
 import com.lyreon.app.ui.theme.LyreonSurface
 import com.lyreon.app.ui.theme.LyreonTextMuted
 import com.lyreon.app.ui.theme.LyreonTextPrimary
+import com.lyreon.app.ui.theme.LyreonMotion
+import com.lyreon.app.ui.theme.lyreonTween
+import com.lyreon.app.ui.theme.reduceMotionEnabled
 import kotlinx.coroutines.delay
 
 /**
@@ -49,26 +57,29 @@ fun LyreonIntroOverlay() {
     var visible by remember { mutableStateOf(true) }
     var entered by remember { mutableStateOf(false) }
 
+    // Reduce motion: intro dipersingkat dan tanpa efek membesar.
+    val reduced = reduceMotionEnabled
     LaunchedEffect(Unit) {
         entered = true
-        delay(1900L)
+        delay(if (reduced) 550L else 1900L)
         visible = false
     }
 
     val scale by animateFloatAsState(
-        targetValue = if (entered) 1f else 0.72f,
-        animationSpec = tween(650),
+        targetValue = if (entered || reduced) 1f else 0.72f,
+        animationSpec = lyreonTween(LyreonMotion.deliberate),
         label = "logo_scale",
     )
     val alpha by animateFloatAsState(
-        targetValue = if (entered) 1f else 0f,
-        animationSpec = tween(450),
+        targetValue = if (entered || reduced) 1f else 0f,
+        animationSpec = lyreonTween(LyreonMotion.normal),
         label = "logo_alpha",
     )
 
     AnimatedVisibility(
         visible = visible,
-        exit = fadeOut(tween(450)),
+        enter = fadeIn(lyreonTween(LyreonMotion.normal)),
+        exit = fadeOut(lyreonTween(LyreonMotion.normal)),
     ) {
         Box(
             modifier = Modifier

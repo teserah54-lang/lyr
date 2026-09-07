@@ -1,8 +1,14 @@
+/*
+ * Copyright (C) 2026 rixz-dev
+ *
+ * SPDX-License-Identifier: GPL-3.0-only
+ */
 package com.lyreon.app.player
 
 import android.content.ComponentName
 import android.content.Context
 import android.net.Uri
+import android.util.Log
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
@@ -30,6 +36,8 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.lyreon.app.widget.WidgetSnapshot
+import com.lyreon.app.widget.WidgetState
 
 data class PlayerUiState(
     val connected: Boolean = false,
@@ -55,6 +63,35 @@ data class PlayerPosition(
 )
 
 /**
+ * Kondisi jalur stream. Dipakai UI untuk menampilkan peringatan yang bisa
+ * ditindaklanjuti (mis. "aktifkan akun YouTube") alih-alih loop senyap.
+ */
+enum class StreamHealthLevel {
+    /** Semua normal. */
+    OK,
+
+    /** Ada kegagalan, tetapi pemutaran masih jalan (skip satu-dua lagu). */
+    DEGRADED,
+
+    /** Circuit breaker terbuka: pemutaran dihentikan, perlu tindakan pengguna. */
+    TRIPPED,
+}
+
+data class StreamHealth(
+    val level: StreamHealthLevel = StreamHealthLevel.OK,
+    val consecutiveFailures: Int = 0,
+    val skipsInWindow: Int = 0,
+    /**
+     * True bila kegagalan terakhir berciri SABR-only/HLS-only — artinya masalah
+     * kebijakan server YouTube (kena ke semua lagu), bukan video tertentu.
+     */
+    val sabrSuspected: Boolean = false,
+    /** Pesan siap-tampil (sudah dilokalkan) untuk banner/snackbar; null = tanpa pesan. */
+    val message: String? = null,
+    val updatedAtMs: Long = 0L,
+)
+
+/**
  * Satu pintu UI ↔ pemutar. Menghubungkan MediaController ke PlaybackService,
  * menyinkronkan state, mengelola antrean, sleep timer, restore sesi,
  * pencatatan riwayat, dan "radio" otomatis dari lagu terkait.
@@ -65,12 +102,49 @@ class PlayerManager(
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
+    private companion object {
+        /**
+         * Tag logcat khusus kesehatan stream. Saring dengan
+         * `adb logcat -s LyreonStreamHealth PlayerClientLadder InnertubeFallback`
+         * untuk melihat seluruh rantai keputusan saat lagu gagal diputar.
+         */
+        const val TAG = "LyreonStreamHealth"
+
+        /**
+         * Bukti kemajuan playback yang diperlukan sebelum penghitung kegagalan
+         * di-reset. 8 detik cukup untuk menyingkirkan "READY sesaat lalu error",
+         * tapi masih jauh di bawah durasi lagu normal.
+         */
+        const val PROGRESS_RESET_MS = 8_000L
+
+        /** Jendela geser (sliding window) untuk menghitung skip beruntun. */
+        const val SKIP_WINDOW_MS = 30_000L
+
+        /** Jumlah skip dalam [SKIP_WINDOW_MS] yang dianggap loop → buka breaker. */
+        const val SKIP_BURST_LIMIT = 4
+
+        /** Kegagalan beruntun tanpa bukti kemajuan → buka breaker. */
+        const val FAILURE_LIMIT = 3
+    }
+
     private val _state = MutableStateFlow(PlayerUiState())
     val state: StateFlow<PlayerUiState> = _state.asStateFlow()
 
     // Posisi/durasi — satu-satunya state yang berubah tiap tick 500ms
     private val _position = MutableStateFlow(PlayerPosition())
     val position: StateFlow<PlayerPosition> = _position.asStateFlow()
+
+    /**
+     * Posisi pemutaran dibaca LANGSUNG dari pemutar (murah, dalam-proses, tanpa
+     * memicu recomposition). Dipakai lirik hidup yang butuh ketelitian ~40 ms —
+     * flow [position] sengaja hanya dipompa tiap 500 ms agar layar lain hemat.
+     *
+     * Pendekatan ini mengikuti Meld/Metrolist yang membaca `player.currentPosition`
+     * di loop lirik, alih-alih berlangganan ticker UI.
+     */
+    fun positionNow(): Long =
+        runCatching { controller?.currentPosition?.coerceAtLeast(0L) }.getOrNull()
+            ?: _position.value.positionMs
 
     private val _events = MutableSharedFlow<String>(extraBufferCapacity = 8)
     val events: SharedFlow<String> = _events.asSharedFlow()
@@ -81,8 +155,29 @@ class PlayerManager(
     val donateRequests: SharedFlow<Unit> = _donateRequests.asSharedFlow()
     private var trackSwitchCount = 0
 
-    // Rangkaian kegagalan stream beruntun — bila terlalu sering, stop total
+    // Rangkaian kegagalan stream beruntun — bila terlalu sering, stop total.
+    //
+    // PENTING (perbaikan bug): penghitung ini DULU di-reset setiap kali player
+    // menyentuh STATE_READY. Di Media3, STATE_READY hanya berarti "buffer cukup
+    // untuk mulai", bukan "playback benar-benar jalan" — track yang sempat READY
+    // sepersekian detik sebelum error lagi (manifest parsial/rusak) membuat
+    // breaker tak pernah terbuka, sehingga loop skip-skip-skip berjalan terus.
+    // Reset sekarang hanya terjadi setelah ada BUKTI KEMAJUAN: posisi playback
+    // benar-benar maju ≥ [PROGRESS_RESET_MS] untuk track yang sama (lihat
+    // [observeProgress] yang dipanggil ticker 500 ms).
     private var consecutiveFailures = 0
+
+    /** Waktu (ms) tiap skip akibat error — untuk mendeteksi burst/loop. */
+    private val skipTimestamps = ArrayDeque<Long>()
+
+    /** Track & posisi acuan terakhir untuk verifikasi kemajuan playback. */
+    private var progressAnchorId: String? = null
+    private var progressAnchorPos: Long = 0L
+
+    private val _health = MutableStateFlow(StreamHealth())
+
+    /** Kondisi jalur stream untuk UI (banner peringatan + tombol coba lagi). */
+    val health: StateFlow<StreamHealth> = _health.asStateFlow()
 
     // Mode video: true = render permukaan video di NowPlaying (stream muxed ≤ 720p)
     private val _videoMode = MutableStateFlow(false)
@@ -134,6 +229,7 @@ class PlayerManager(
     private val listener = object : Player.Listener {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             _state.update { it.copy(isPlaying = isPlaying) }
+            publishWidgetState()
             if (isPlaying) {
                 _state.value.currentTrack?.let { t ->
                     scope.launch { locator.library.recordPlay(t) }
@@ -146,9 +242,9 @@ class PlayerManager(
             _state.update {
                 it.copy(isBuffering = playbackState == Player.STATE_BUFFERING)
             }
-            if (playbackState == Player.STATE_READY) {
-                consecutiveFailures = 0
-            }
+            // STATE_READY TIDAK lagi mereset penghitung kegagalan: itu hanya
+            // berarti buffer cukup untuk mulai, bukan playback benar-benar jalan.
+            // Reset terjadi di observeProgress() setelah posisi maju nyata.
             if (playbackState == Player.STATE_ENDED) {
                 onEnded()
             }
@@ -171,6 +267,7 @@ class PlayerManager(
             syncFromPlayer(c)
             tasteActiveTrack = _state.value.currentTrack
             errorRetries.clear()
+            applyHlsBandwidthPolicy(c)
             warmUpcoming(c)
             maybeExtendQueue(c)
             scheduleSave()
@@ -200,40 +297,216 @@ class PlayerManager(
             val tries = errorRetries.getOrDefault(id, 0)
             errorRetries[id] = tries + 1
             val c = controller ?: return
+
+            // Alasan sesungguhnya ada di rantai cause: ResolvingDataSource
+            // membungkus kegagalan resolusi, StreamUnavailableException membawa
+            // tanda SABR-only/HLS-only dari tangga klien.
+            val sabrSuspected = isSabrFailure(error)
+            if (sabrSuspected) {
+                com.lyreon.app.yt.innertube.PlayerClientLadder.push(
+                    "player error $id berciri SABR/HLS (${error.errorCodeName})",
+                )
+            }
+
+            // Stream hanya tersedia sebagai manifest HLS? Itu BUKAN kegagalan:
+            // HLS adalah jalur anonim yang sah (manifest tidak menuntut poToken
+            // GVS). Tukar MediaItem ke URL m3u8 + MIME yang benar supaya
+            // DefaultMediaSourceFactory membangun HlsMediaSource, lalu putar lagi.
+            val hls = findHlsRequest(error)
+            val currentItem = c.currentMediaItem
+            if (hls != null && id.isNotBlank() && currentItem != null &&
+                currentItem.localConfiguration?.uri?.scheme == ResolvingDataSource.LYREON_SCHEME
+            ) {
+                val index = c.currentMediaItemIndex
+                val swapped = currentItem.buildUpon()
+                    .setUri(hls.manifestUrl)
+                    .setMimeType(hls.manifestMime)
+                    .build()
+                com.lyreon.app.yt.innertube.PlayerClientLadder.push(
+                    "player: $id ditukar ke manifest HLS",
+                )
+                Log.i(TAG, "track '$id' beralih ke manifest HLS")
+                // Penukaran ini tidak memakan jatah retry satu-per-track.
+                errorRetries[id] = tries
+                runCatching {
+                    c.replaceMediaItem(index, swapped)
+                    c.seekTo(index, 0)
+                    c.prepare()
+                    c.play()
+                }.onFailure { Log.w(TAG, "gagal menukar ke HLS: ${it.message}") }
+                return
+            }
+
             when {
-                // Satu kesempatan ulang per track (n-sig/pot basi sering sembuh)
+                // Satu kesempatan ulang per track. Percobaan ulang ini tidak
+                // mengulang jalur yang sama: klien yang baru saja membalas
+                // SABR-only sudah didinginkan di PlayerClientLadder.
                 tries < 1 && id.isNotBlank() -> {
-                    emit("Memuat ulang stream…")
+                    emit(context.getString(R.string.stream_reloading))
+                    markDegraded(sabrSuspected)
                     runCatching {
                         c.seekToDefaultPosition()
                         c.prepare()
                         c.play()
                     }
                 }
-                // Loncat ke track berikutnya — tapi jika gagal beruntun, STOP total
-                c.hasNextMediaItem() && consecutiveFailures < 3 -> {
+                // Loncat ke track berikutnya — dengan dua rem: kegagalan beruntun
+                // DAN burst skip dalam jendela waktu (pola loop "READY sesaat →
+                // error lagi" yang dulu tak terdeteksi).
+                c.hasNextMediaItem() && consecutiveFailures < FAILURE_LIMIT -> {
                     consecutiveFailures++
-                    emit("Track dilewati (stream tidak tersedia)")
-                    runCatching {
-                        c.seekToNextMediaItem()
-                        c.prepare()
-                        c.play()
+                    Log.w(
+                        TAG,
+                        "gagal #$consecutiveFailures/$FAILURE_LIMIT track='$id' " +
+                            "errorCode=${error.errorCodeName} sabr=$sabrSuspected " +
+                            "skipDalamJendela=${skipTimestamps.size}",
+                    )
+                    if (registerSkip()) {
+                        tripPlayback(c, sabrSuspected)
+                    } else {
+                        markDegraded(sabrSuspected)
+                        emit(context.getString(R.string.stream_track_skipped))
+                        runCatching {
+                            c.seekToNextMediaItem()
+                            c.prepare()
+                            c.play()
+                        }
                     }
                 }
-                else -> {
-                    emit(context.getString(R.string.stream_stopped_unavailable))
-                    runCatching {
-                        c.pause()
-                        c.stop()
-                        c.clearMediaItems()
-                    }
-                    _state.update { it.copy(queue = emptyList(), currentIndex = -1, currentTrack = null) }
-                    _position.value = PlayerPosition()
-                    consecutiveFailures = 0
-                    errorRetries.clear()
-                }
+                else -> tripPlayback(c, sabrSuspected)
             }
         }
+    }
+
+    // ------------------------------------------------------------------
+    // Circuit breaker kesehatan stream
+    // ------------------------------------------------------------------
+
+    /**
+     * Menelusuri rantai cause mencari sinyal "stream ini manifest HLS" yang
+     * dilempar [ResolvingDataSource].
+     */
+    private fun findHlsRequest(error: PlaybackException): HlsRequiredException? {
+        var node: Throwable? = error
+        var depth = 0
+        while (node != null && depth < 8) {
+            if (node is HlsRequiredException) return node
+            node = node.cause
+            depth++
+        }
+        return null
+    }
+
+    /**
+     * Menelusuri rantai cause mencari tanda YouTube menutup akses anonim:
+     * SABR-only, hanya-HLS, format ber-DRM, atau URL yang ditolak CDN
+     * (403 / pratinjau ~1 MiB — pola yang membuat lagu mati di tengah).
+     */
+    private fun isSabrFailure(error: PlaybackException): Boolean {
+        var node: Throwable? = error
+        var depth = 0
+        while (node != null && depth < 8) {
+            if (node is com.lyreon.app.yt.innertube.StreamUnavailableException) {
+                return node.sabrOnly || node.hlsOnly || node.drmOnly || node.cdnRejected
+            }
+            val message = node.message.orEmpty()
+            if (message.contains("SABR", ignoreCase = true)) return true
+            if (message.contains("ContentNotSupported", ignoreCase = true)) return true
+            node = node.cause
+            depth++
+        }
+        // Tidak ada tanda eksplisit → pakai sinyal tangga klien (jendela sempit).
+        return com.lyreon.app.yt.innertube.PlayerClientLadder
+            .sabrPressureRecently(2L * 60_000L)
+    }
+
+    /** Catat satu skip; kembalikan true bila sudah masuk pola burst/loop. */
+    private fun registerSkip(): Boolean {
+        val now = System.currentTimeMillis()
+        while (skipTimestamps.isNotEmpty() && now - skipTimestamps.first() > SKIP_WINDOW_MS) {
+            skipTimestamps.removeFirst()
+        }
+        skipTimestamps.addLast(now)
+        return skipTimestamps.size > SKIP_BURST_LIMIT
+    }
+
+    private fun markDegraded(sabrSuspected: Boolean) {
+        if (_health.value.level == StreamHealthLevel.TRIPPED) return
+        _health.update {
+            it.copy(
+                level = StreamHealthLevel.DEGRADED,
+                consecutiveFailures = consecutiveFailures,
+                skipsInWindow = skipTimestamps.size,
+                sabrSuspected = it.sabrSuspected || sabrSuspected,
+                updatedAtMs = System.currentTimeMillis(),
+            )
+        }
+    }
+
+    /** Buka breaker: hentikan pemutaran, simpan antrean, beri pesan yang actionable. */
+    private fun tripPlayback(c: MediaController, sabrSuspected: Boolean) {
+        // Lyreon anonim (tanpa cookie akun), jadi pesannya tidak pernah menyuruh
+        // pengguna login — yang bisa ditindaklanjuti adalah menunggu/mencoba lagi
+        // atau memperbarui app saat tangga klien perlu disesuaikan.
+        val message = if (sabrSuspected) {
+            context.getString(R.string.stream_tripped_sabr_anonymous)
+        } else {
+            context.getString(R.string.stream_stopped_unavailable)
+        }
+        Log.e(
+            TAG,
+            "breaker TERBUKA (TRIPPED): kegagalan=$consecutiveFailures " +
+                "skip=${skipTimestamps.size} sabr=$sabrSuspected — antrean dipertahankan",
+        )
+        emit(message)
+        // Antrean DIPERTAHANKAN — `stop()` tidak menghapus item. Perilaku lama
+        // mengosongkan antrean, sehingga pemulihan berarti mencari ulang lagu.
+        runCatching {
+            c.pause()
+            c.stop()
+        }
+        _health.update {
+            StreamHealth(
+                level = StreamHealthLevel.TRIPPED,
+                consecutiveFailures = consecutiveFailures,
+                skipsInWindow = skipTimestamps.size,
+                sabrSuspected = sabrSuspected,
+                message = message,
+                updatedAtMs = System.currentTimeMillis(),
+            )
+        }
+        errorRetries.clear()
+        scheduleSave()
+    }
+
+    /**
+     * Satu-satunya jalur reset breaker: posisi playback benar-benar maju
+     * ≥ [PROGRESS_RESET_MS] untuk track yang sama sambil bermain.
+     */
+    private fun observeProgress(c: MediaController, positionMs: Long) {
+        if (!c.isPlaying) return
+        val id = c.currentMediaItem?.mediaId.orEmpty()
+        if (id.isBlank()) return
+        if (progressAnchorId != id) {
+            progressAnchorId = id
+            progressAnchorPos = positionMs
+            return
+        }
+        if (positionMs - progressAnchorPos < PROGRESS_RESET_MS) return
+        progressAnchorPos = positionMs
+        if (consecutiveFailures == 0 && skipTimestamps.isEmpty() &&
+            _health.value.level == StreamHealthLevel.OK
+        ) {
+            return
+        }
+        Log.i(
+            TAG,
+            "breaker di-reset: posisi maju ≥${PROGRESS_RESET_MS}ms pada track='$id' " +
+                "(sebelumnya kegagalan=$consecutiveFailures, level=${_health.value.level})",
+        )
+        consecutiveFailures = 0
+        skipTimestamps.clear()
+        _health.value = StreamHealth()
     }
 
     private fun onEnded() {
@@ -246,6 +519,8 @@ class PlayerManager(
         scope.launch {
             val autoplay = locator.settings.settings.first().autoplayRelated
             if (!autoplay) return@launch
+            // Breaker terbuka → jangan menyeret pengguna kembali ke loop.
+            if (_health.value.level == StreamHealthLevel.TRIPPED) return@launch
             emit("Membuka radio: lagu terkait…")
             val related = withContext(Dispatchers.IO) { locator.youtube.relatedOf(current.videoId) }
             if (related.isEmpty()) return@launch
@@ -298,6 +573,27 @@ class PlayerManager(
         _position.update {
             it.copy(positionMs = c.currentPosition.coerceAtLeast(0L), durationMs = duration)
         }
+        publishWidgetState()
+    }
+
+    /**
+     * Dorong snapshot widget. Murah dan idempoten: [WidgetState.publish] berhenti
+     * lebih awal bila isinya tidak berubah, jadi pemanggilan berulang dari
+     * sinkronisasi pemutar tidak memicu render ulang launcher.
+     */
+    private fun publishWidgetState() {
+        val snapshot = _state.value
+        val track = snapshot.currentTrack
+        WidgetState.publish(
+            context,
+            WidgetSnapshot(
+                title = track?.title.orEmpty(),
+                artist = track?.artist.orEmpty(),
+                artUrl = track?.thumbnailUrl.orEmpty(),
+                isPlaying = snapshot.isPlaying,
+                hasTrack = track != null,
+            ),
+        )
     }
 
     private fun startTicker() {
@@ -308,13 +604,17 @@ class PlayerManager(
                 if (c != null) {
                     // HANYA flow posisi yang dipompa di sini — layar lain tidak terganggu.
                     // isBuffering sudah ditangani listener onPlaybackStateChanged.
+                    val positionMs = c.currentPosition.coerceAtLeast(0L)
                     _position.update {
                         it.copy(
-                            positionMs = c.currentPosition.coerceAtLeast(0L),
+                            positionMs = positionMs,
                             durationMs = c.duration.takeIf { d -> d > 0 && d != C.TIME_UNSET }
                                 ?: it.durationMs,
                         )
                     }
+                    // Verifikasi kemajuan playback — satu-satunya pemicu reset
+                    // circuit breaker (bukan STATE_READY).
+                    observeProgress(c, positionMs)
                 }
                 delay(500L)
             }
@@ -324,14 +624,54 @@ class PlayerManager(
     private fun warmUpcoming(c: MediaController) {
         val count = c.mediaItemCount
         if (count == 0) return
-        val ids = mutableListOf<String>()
         val idx = c.currentMediaItemIndex
-        if (idx + 1 < count) ids.add(c.getMediaItemAt(idx + 1).mediaId)
-        if (idx + 2 < count) ids.add(c.getMediaItemAt(idx + 2).mediaId)
-        ids.removeAll { it.startsWith(LyreonTrack.LOCAL_ID_PREFIX) } // lokal tidak perlu warm-up stream
+        val upcoming = listOf(idx + 1, idx + 2).filter { it < count }
+        val ids = upcoming
+            .map { c.getMediaItemAt(it).mediaId }
+            .filterNot { it.startsWith(LyreonTrack.LOCAL_ID_PREFIX) } // lokal tak perlu warm-up
         if (ids.isEmpty()) return
         scope.launch(Dispatchers.IO) {
             runCatching { locator.youtube.warmUp(*ids.toTypedArray()) }
+            // Lagu berikutnya yang ternyata hanya punya manifest HLS dipersiapkan
+            // SEKARANG (bukan saat sudah error): MediaItem ditukar ke URL m3u8 +
+            // MIME, jadi transisi mulus tanpa retry.
+            withContext(Dispatchers.Main) { upgradeManifestItems(c, upcoming) }
+        }
+    }
+
+    /**
+     * Tukar `MediaItem` ber-skema `lyreon://` yang hasil resolusinya manifest HLS
+     * menjadi item beralamat m3u8 langsung. Hanya untuk lagu yang BELUM diputar,
+     * jadi tidak ada risiko memutus playback yang sedang berjalan.
+     */
+    private fun upgradeManifestItems(c: MediaController, indexes: List<Int>) {
+        indexes.forEach { index ->
+            val item = runCatching { c.getMediaItemAt(index) }.getOrNull() ?: return@forEach
+            val local = item.localConfiguration ?: return@forEach
+            if (local.uri.scheme != ResolvingDataSource.LYREON_SCHEME) return@forEach
+            val manifest = locator.youtube.cachedManifestFor(item.mediaId) ?: return@forEach
+            val swapped = item.buildUpon()
+                .setUri(manifest.first)
+                .setMimeType(manifest.second)
+                .build()
+            runCatching { c.replaceMediaItem(index, swapped) }
+                .onSuccess { Log.i(TAG, "antrean[$index] (${item.mediaId}) disiapkan sebagai HLS") }
+        }
+        applyHlsBandwidthPolicy(c)
+    }
+
+    /**
+     * Manifest HLS YouTube berisi varian video+audio yang sudah digabung. Lyreon
+     * pemutar audio → matikan track video supaya ExoPlayer memilih varian termurah
+     * yang masih mengandung audio (hemat kuota berlipat dibanding varian 720p).
+     */
+    private fun applyHlsBandwidthPolicy(c: MediaController) {
+        val mime = c.currentMediaItem?.localConfiguration?.mimeType.orEmpty()
+        val isHls = mime.contains("mpegurl", ignoreCase = true)
+        runCatching {
+            c.trackSelectionParameters = c.trackSelectionParameters.buildUpon()
+                .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, isHls)
+                .build()
         }
     }
 
@@ -350,6 +690,9 @@ class PlayerManager(
     private fun maybeExtendQueue(c: MediaController) {
         val count = c.mediaItemCount
         if (count == 0) return
+        // Jangan memperpanjang antrean saat jalur stream bermasalah — itu hanya
+        // memperpanjang loop skip dan membuang permintaan ke YouTube.
+        if (_health.value.level != StreamHealthLevel.OK) return
         // Perpanjang LEBIH AWAL (sisa ≤ 5, bukan 3) agar radio tidak pernah jeda
         // di tengah lagu — ala antrean kontinu yang selalu penuh di depan.
         val remaining = count - 1 - c.currentMediaItemIndex
@@ -454,6 +797,18 @@ class PlayerManager(
     // ------------------------------------------------------------------
     // Perintah publik
     // ------------------------------------------------------------------
+
+    /**
+     * Pindahkan lagu dalam antrean (reorder). Indeks di luar rentang diabaikan —
+     * antrean bisa berubah dari notifikasi/Widget di saat bersamaan.
+     */
+    fun moveItem(from: Int, to: Int) {
+        val c = controller ?: return
+        if (from == to) return
+        val count = c.mediaItemCount
+        if (from !in 0 until count || to !in 0 until count) return
+        c.moveMediaItem(from, to)
+    }
 
     fun playQueue(tracks: List<LyreonTrack>, startIndex: Int = 0, autoplay: Boolean = true) {
         if (tracks.isEmpty()) return
@@ -603,6 +958,38 @@ class PlayerManager(
 
     fun stop() {
         controller?.stop()
+    }
+
+    /**
+     * Dilanjutkan setelah pengguna memperbaiki sebabnya (memasang cookie akun,
+     * menunggu kebijakan YouTube bergeser, atau sekadar mencoba lagi): buang
+     * cache URL lama, reset breaker, lalu putar dari track yang sama.
+     */
+    fun retryAfterFix() {
+        val c = controller ?: return
+        consecutiveFailures = 0
+        skipTimestamps.clear()
+        errorRetries.clear()
+        progressAnchorId = null
+        progressAnchorPos = 0L
+        _health.value = StreamHealth()
+        val queue = _state.value.queue
+        val index = _state.value.currentIndex.coerceAtLeast(0)
+        runCatching {
+            if (c.mediaItemCount == 0 && queue.isNotEmpty()) {
+                c.setMediaItems(queue.map(::toMediaItem), index.coerceIn(0, queue.lastIndex), 0L)
+            }
+            // URL yang ter-cache di-resolve dengan identitas/klien lama.
+            locator.youtube.invalidateAll()
+            c.prepare()
+            c.play()
+        }
+        emit(context.getString(R.string.stream_retrying))
+    }
+
+    /** Tutup banner peringatan tanpa mengubah status breaker. */
+    fun dismissHealthAlert() {
+        _health.update { it.copy(message = null) }
     }
 
     // ------------------------------------------------------------------

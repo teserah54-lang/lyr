@@ -1,5 +1,12 @@
+/*
+ * Copyright (C) 2026 rixz-dev
+ *
+ * SPDX-License-Identifier: GPL-3.0-only
+ */
 package com.lyreon.app
 
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.getValue
 import android.Manifest
 import android.content.Context
 import android.content.Intent
@@ -21,7 +28,6 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LibraryMusic
@@ -48,11 +54,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -74,6 +78,7 @@ import com.lyreon.app.core.LocaleHelper
 import com.lyreon.app.core.ServiceLocator
 import com.lyreon.app.data.model.LyreonTrack
 import com.lyreon.app.data.model.YtPlaylist
+import com.lyreon.app.player.StreamHealthLevel
 import com.lyreon.app.ui.components.AddToPlaylistDialog
 import com.lyreon.app.ui.components.DonateDialog
 import com.lyreon.app.ui.components.MiniPlayerBar
@@ -86,6 +91,9 @@ import com.lyreon.app.ui.screens.DownloadsScreen
 import com.lyreon.app.ui.screens.EditorialDetailScreen
 import com.lyreon.app.ui.screens.HomeScreen
 import com.lyreon.app.ui.screens.LibraryScreen
+import com.lyreon.app.ui.screens.BrowseScreen
+import com.lyreon.app.ui.vm.BrowseViewModel
+import com.lyreon.app.ui.screens.LicensesScreen
 import com.lyreon.app.ui.screens.NowPlayingScreen
 import com.lyreon.app.ui.screens.PlaylistDetailScreen
 import com.lyreon.app.ui.screens.SearchScreen
@@ -96,7 +104,11 @@ import com.lyreon.app.ui.theme.LyreonElevated
 import com.lyreon.app.ui.theme.LyreonBackground
 import com.lyreon.app.ui.theme.LyreonTextMuted
 import com.lyreon.app.ui.theme.LyreonTheme
-import com.lyreon.app.ui.theme.ThemeMode
+import com.lyreon.app.ui.theme.LyreonAccentSoft
+import com.lyreon.app.ui.theme.LyreonChromeShape
+import com.lyreon.app.ui.theme.LyreonHairline
+import com.lyreon.app.ui.theme.LyreonSurfaceTranslucent
+import androidx.compose.foundation.border
 import com.lyreon.app.ui.vm.DownloadsViewModel
 import com.lyreon.app.ui.vm.HomeViewModel
 import com.lyreon.app.ui.vm.LibraryViewModel
@@ -131,6 +143,8 @@ class MainActivity : ComponentActivity() {
                     themeMode = settings.themeMode,
                     accentArgb = settings.accentArgb,
                     fontKey = settings.fontKey,
+                    dynamicColor = settings.dynamicColor,
+                    reduceMotion = settings.reduceMotion,
                 ) {
                     Box(Modifier.fillMaxSize()) {
                         LyreonRoot(
@@ -204,9 +218,23 @@ fun LyreonRoot(
     var showDonate by remember { mutableStateOf(false) }
 
     // --- Snackbar dari player events ---
+    // Saat circuit breaker stream terbuka, snackbar membawa aksi: buka Pengaturan
+    // (tempat memasang cookie akun / melihat diagnostik klien) atau coba lagi.
+    val snackContext = androidx.compose.ui.platform.LocalContext.current
     LaunchedEffect(Unit) {
         player.events.collect { msg ->
-            runCatching { snackbarHostState.showSnackbar(msg) }
+            val tripped = player.health.value.level == StreamHealthLevel.TRIPPED
+            val actionLabel = if (tripped) {
+                snackContext.getString(R.string.stream_snackbar_action)
+            } else {
+                null
+            }
+            runCatching {
+                val result = snackbarHostState.showSnackbar(msg, actionLabel = actionLabel)
+                if (tripped && result == androidx.compose.material3.SnackbarResult.ActionPerformed) {
+                    navController.navigate("settings") { launchSingleTop = true }
+                }
+            }
         }
     }
 
@@ -266,14 +294,14 @@ fun LyreonRoot(
     val navColors = NavigationBarItemDefaults.colors(
         selectedIconColor = com.lyreon.app.ui.theme.LyreonCrimson,
         selectedTextColor = com.lyreon.app.ui.theme.LyreonCrimson,
-        indicatorColor = com.lyreon.app.ui.theme.LyreonCrimson.copy(alpha = 0.14f),
+        indicatorColor = LyreonAccentSoft,
         unselectedIconColor = LyreonTextMuted,
         unselectedTextColor = LyreonTextMuted,
     )
     val railColors = NavigationRailItemDefaults.colors(
         selectedIconColor = com.lyreon.app.ui.theme.LyreonCrimson,
         selectedTextColor = com.lyreon.app.ui.theme.LyreonCrimson,
-        indicatorColor = com.lyreon.app.ui.theme.LyreonCrimson.copy(alpha = 0.14f),
+        indicatorColor = LyreonAccentSoft,
         unselectedIconColor = LyreonTextMuted,
         unselectedTextColor = LyreonTextMuted,
     )
@@ -348,8 +376,9 @@ fun LyreonRoot(
                     Box(
                         modifier = Modifier
                             .padding(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 10.dp)
-                            .clip(RoundedCornerShape(28.dp))
-                            .background(LyreonElevated.copy(alpha = 0.96f)),
+                            .clip(LyreonChromeShape)
+                            .background(LyreonSurfaceTranslucent)
+                            .border(1.dp, LyreonHairline, LyreonChromeShape),
                     ) {
                         NavigationBar(
                             containerColor = androidx.compose.ui.graphics.Color.Transparent,
@@ -543,6 +572,9 @@ private fun LyreonNavHost(
                 likedIds = likedIds,
                 downloadedIds = downloadedIds,
                 onOpenEditorial = { navController.navigate("editorial/${it.id}") },
+                onOpenBrowse = { id, name ->
+                    navController.navigate("browse/$id?title=${Uri.encode(name)}")
+                },
                 onSearchClick = {
                     navController.navigate("search") {
                         popUpTo(navController.graph.findStartDestination().id) { saveState = true }
@@ -607,6 +639,9 @@ private fun LyreonNavHost(
             ArchiveScreen(
                 playerState = playerState,
                 onOpenEditorial = { navController.navigate("editorial/${it.id}") },
+                onOpenBrowse = { id, name ->
+                    navController.navigate("browse/$id?title=${Uri.encode(name)}")
+                },
                 onPlayMovement = { playMovement(it.searchQuery) },
             )
         }
@@ -623,7 +658,48 @@ private fun LyreonNavHost(
 
         composable("settings") {
             val vm: SettingsViewModel = lyreonViewModel { SettingsViewModel(it) }
-            SettingsScreen(vm = vm)
+            SettingsScreen(
+                vm = vm,
+                onOpenLicenses = { navController.navigate("licenses") { launchSingleTop = true } },
+            )
+        }
+
+        composable(
+            route = "browse/{browseId}?title={title}&params={params}",
+            arguments = listOf(
+                navArgument("browseId") { type = NavType.StringType },
+                navArgument("title") { type = NavType.StringType; defaultValue = "" },
+                navArgument("params") { type = NavType.StringType; defaultValue = "" },
+            ),
+        ) { entry ->
+            val browseId = entry.arguments?.getString("browseId").orEmpty()
+            val title = entry.arguments?.getString("title").orEmpty()
+            val params = entry.arguments?.getString("params").orEmpty()
+            val vm: BrowseViewModel = lyreonViewModel(key = "browse_$browseId$params") {
+                BrowseViewModel(it, browseId, params)
+            }
+            BrowseScreen(
+                vm = vm,
+                fallbackTitle = title,
+                playerState = playerState,
+                likedIds = likedIds,
+                downloadedIds = downloadedIds,
+                onBack = { navController.popBackStack() },
+                onPlayQueue = { tracks, index -> player.playQueue(tracks, index) },
+                onLike = onLike,
+                onTrackMore = onMore,
+                onOpenBrowse = { id, name ->
+                    navController.navigate("browse/$id?title=${Uri.encode(name)}")
+                },
+                onOpenPlaylist = { playlistId ->
+                    val url = "https://music.youtube.com/playlist?list=$playlistId"
+                    navController.navigate("ytplaylist/${Uri.encode(url)}")
+                },
+            )
+        }
+
+        composable("licenses") {
+            LicensesScreen(onBack = { navController.popBackStack() })
         }
 
         composable(
@@ -702,6 +778,7 @@ private fun LyreonNavHost(
                 },
                 onPlayAt = player::playAt,
                 onRemoveQueueItem = player::removeAt,
+                onMoveQueueItem = player::moveItem,
             )
         }
 

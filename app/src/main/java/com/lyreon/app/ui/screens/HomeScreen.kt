@@ -1,3 +1,8 @@
+/*
+ * Copyright (C) 2026 rixz-dev
+ *
+ * SPDX-License-Identifier: GPL-3.0-only
+ */
 package com.lyreon.app.ui.screens
 
 import androidx.compose.foundation.Image
@@ -77,6 +82,7 @@ fun HomeScreen(
     downloadedIds: Set<String>,
     onOpenEditorial: (EditorialSection) -> Unit,
     onSearchClick: () -> Unit,
+    onOpenBrowse: (String, String) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier,
 ) {
     val home by vm.state.collectAsStateWithLifecycle()
@@ -155,8 +161,14 @@ fun HomeScreen(
                     loading = home.artistsLoading,
                     onRegion = vm::selectArtistRegion,
                     onArtist = { artist ->
-                        locator.pendingSearchQuery.value = artist.name
-                        onSearchClick()
+                        // Halaman artis InnerTube bila kanal dikenal; kalau tidak,
+                        // jatuh kembali ke pencarian seperti sebelumnya.
+                        if (artist.browseId.isNotBlank()) {
+                            onOpenBrowse(artist.browseId, artist.name)
+                        } else {
+                            locator.pendingSearchQuery.value = artist.name
+                            onSearchClick()
+                        }
                     },
                 )
             }

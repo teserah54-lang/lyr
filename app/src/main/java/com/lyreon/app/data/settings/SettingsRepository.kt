@@ -1,8 +1,14 @@
+/*
+ * Copyright (C) 2026 rixz-dev
+ *
+ * SPDX-License-Identifier: GPL-3.0-only
+ */
 package com.lyreon.app.data.settings
 
 import android.content.Context
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -29,6 +35,26 @@ data class LyreonSettings(
     val accentArgb: Int = -1,
     /** Kunci jenis huruf: default / serif / mono / cursive. */
     val fontKey: String = "default",
+    /** Material You: ambil palet dari wallpaper (Android 12+). */
+    val dynamicColor: Boolean = false,
+    /**
+     * Penyesuaian waktu lirik dalam milidetik (positif = lirik maju).
+     * Disimpan global, bukan per lagu: cukup untuk mengoreksi sumber lirik yang
+     * konsisten bergeser beberapa ratus ms.
+     */
+    val lyricsOffsetMs: Int = 0,
+    /** Provider lirik KuGou sebagai cadangan setelah LRCLIB. */
+    val kugouEnabled: Boolean = true,
+    /** Buang keheningan dari audio (processor SilenceSkippingAudioProcessor media3). */
+    val skipSilence: Boolean = false,
+    /** Mode agresif: lompat maju bila keheningan panjang tetap terdengar. */
+    val skipSilenceInstant: Boolean = false,
+    /** Kecepatan putar (0.5×–2.0×). */
+    val playbackSpeed: Float = 1f,
+    /** Geser nada dalam semitone (-12..+12); 0 = nada asli. */
+    val pitchSemitones: Int = 0,
+    /** Samakan keras lagu memakai loudness referensi dari YouTube. */
+    val normalizeAudio: Boolean = true,
 )
 
 class SettingsRepository(private val context: Context) {
@@ -41,6 +67,14 @@ class SettingsRepository(private val context: Context) {
         val DISPLAY_NAME = stringPreferencesKey("display_name")
         val ACCENT_ARGB = intPreferencesKey("accent_argb")
         val FONT_KEY = stringPreferencesKey("font_key")
+        val DYNAMIC_COLOR = booleanPreferencesKey("dynamic_color")
+        val LYRICS_OFFSET_MS = intPreferencesKey("lyrics_offset_ms")
+        val KUGOU_ENABLED = booleanPreferencesKey("kugou_enabled")
+        val SKIP_SILENCE = booleanPreferencesKey("skip_silence")
+        val SKIP_SILENCE_INSTANT = booleanPreferencesKey("skip_silence_instant")
+        val PLAYBACK_SPEED = floatPreferencesKey("playback_speed")
+        val PITCH_SEMITONES = intPreferencesKey("pitch_semitones")
+        val NORMALIZE_AUDIO = booleanPreferencesKey("normalize_audio")
     }
 
     val settings: Flow<LyreonSettings> = context.lyreonDataStore.data.map { prefs ->
@@ -55,6 +89,14 @@ class SettingsRepository(private val context: Context) {
             displayName = prefs[Keys.DISPLAY_NAME].orEmpty(),
             accentArgb = prefs[Keys.ACCENT_ARGB] ?: -1,
             fontKey = prefs[Keys.FONT_KEY] ?: "default",
+            dynamicColor = prefs[Keys.DYNAMIC_COLOR] ?: false,
+            lyricsOffsetMs = prefs[Keys.LYRICS_OFFSET_MS] ?: 0,
+            kugouEnabled = prefs[Keys.KUGOU_ENABLED] ?: true,
+            skipSilence = prefs[Keys.SKIP_SILENCE] ?: false,
+            skipSilenceInstant = prefs[Keys.SKIP_SILENCE_INSTANT] ?: false,
+            playbackSpeed = (prefs[Keys.PLAYBACK_SPEED] ?: 1f).coerceIn(0.5f, 2f),
+            pitchSemitones = (prefs[Keys.PITCH_SEMITONES] ?: 0).coerceIn(-12, 12),
+            normalizeAudio = prefs[Keys.NORMALIZE_AUDIO] ?: true,
         )
     }
 
@@ -84,5 +126,40 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun setFontKey(value: String) {
         context.lyreonDataStore.edit { it[Keys.FONT_KEY] = value }
+    }
+
+    suspend fun setDynamicColor(value: Boolean) {
+        context.lyreonDataStore.edit { it[Keys.DYNAMIC_COLOR] = value }
+    }
+
+    suspend fun setLyricsOffsetMs(value: Int) {
+        // Batas wajar: ±10 detik — lebih dari itu pasti salah tekan.
+        context.lyreonDataStore.edit { it[Keys.LYRICS_OFFSET_MS] = value.coerceIn(-10_000, 10_000) }
+    }
+
+    suspend fun setKugouEnabled(value: Boolean) {
+        context.lyreonDataStore.edit { it[Keys.KUGOU_ENABLED] = value }
+    }
+
+    suspend fun setSkipSilence(value: Boolean) {
+        context.lyreonDataStore.edit { it[Keys.SKIP_SILENCE] = value }
+    }
+
+    suspend fun setSkipSilenceInstant(value: Boolean) {
+        context.lyreonDataStore.edit { it[Keys.SKIP_SILENCE_INSTANT] = value }
+    }
+
+    /** Kecepatan dibulatkan ke langkah 0.05 lalu dijepit 0.5×–2.0×. */
+    suspend fun setPlaybackSpeed(value: Float) {
+        val snapped = (kotlin.math.round(value * 20f) / 20f).coerceIn(0.5f, 2f)
+        context.lyreonDataStore.edit { it[Keys.PLAYBACK_SPEED] = snapped }
+    }
+
+    suspend fun setPitchSemitones(value: Int) {
+        context.lyreonDataStore.edit { it[Keys.PITCH_SEMITONES] = value.coerceIn(-12, 12) }
+    }
+
+    suspend fun setNormalizeAudio(value: Boolean) {
+        context.lyreonDataStore.edit { it[Keys.NORMALIZE_AUDIO] = value }
     }
 }

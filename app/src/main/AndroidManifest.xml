@@ -73,6 +73,19 @@
             </intent-filter>
         </service>
 
+        <!-- Widget pemutar di home screen -->
+        <receiver
+            android:name=".widget.PlayerWidgetReceiver"
+            android:exported="true"
+            android:label="@string/widget_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_info" />
+        </receiver>
+
         <!-- Media button / playback resumption -->
         <receiver
             android:name="androidx.media3.session.MediaButtonReceiver"

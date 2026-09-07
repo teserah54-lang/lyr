@@ -1,3 +1,8 @@
+/*
+ * Copyright (C) 2026 rixz-dev
+ *
+ * SPDX-License-Identifier: GPL-3.0-only
+ */
 package com.lyreon.app.ui.screens
 
 import androidx.compose.foundation.Image
@@ -45,6 +50,13 @@ import com.lyreon.app.ui.theme.LyreonLine
 import com.lyreon.app.ui.theme.LyreonBackground
 import com.lyreon.app.ui.theme.LyreonCrimson
 import com.lyreon.app.ui.theme.LyreonTextMuted
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
+import com.lyreon.app.R
+import com.lyreon.app.ui.theme.LyreonRadius
+import com.lyreon.app.ui.theme.LyreonSurface
 
 /**
  * ARSIP — editorial movements dari desain asli.
@@ -55,6 +67,7 @@ fun ArchiveScreen(
     playerState: PlayerUiState,
     onOpenEditorial: (EditorialSection) -> Unit,
     onPlayMovement: (EditorialSection) -> Unit,
+    onOpenBrowse: (String, String) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier,
 ) {
     val listState = rememberLazyListState()
@@ -93,6 +106,33 @@ fun ArchiveScreen(
                     Spacer(Modifier.height(12.dp))
                     Text(
                         "Kurasi editorial Lyreon. Setiap movement adalah pintu — tekan play dan biarkan kueri YouTube bekerja.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = LyreonTextSecondary,
+                    )
+                }
+            }
+
+            item(key = "genres_moods") {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp)
+                        .clip(RoundedCornerShape(LyreonRadius.lg))
+                        .background(LyreonSurface)
+                        .clickable {
+                            onOpenBrowse("FEmusic_moods_and_genres", "GENRE & MOOD")
+                        }
+                        .padding(16.dp),
+                ) {
+                    Text(
+                        stringResource(R.string.browse_genres_title).uppercase(),
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = LyreonCrimson,
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        stringResource(R.string.browse_genres_body),
                         style = MaterialTheme.typography.bodySmall,
                         color = LyreonTextSecondary,
                     )

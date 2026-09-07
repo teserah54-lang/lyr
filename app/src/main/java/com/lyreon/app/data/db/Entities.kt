@@ -1,3 +1,8 @@
+/*
+ * Copyright (C) 2026 rixz-dev
+ *
+ * SPDX-License-Identifier: GPL-3.0-only
+ */
 package com.lyreon.app.data.db
 
 import androidx.room.Embedded

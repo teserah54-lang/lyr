@@ -1,7 +1,13 @@
+/*
+ * Copyright (C) 2026 rixz-dev
+ *
+ * SPDX-License-Identifier: GPL-3.0-only
+ */
 package com.lyreon.app.ui.screens
 
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.getValue
 import androidx.compose.animation.Crossfade
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -30,6 +36,8 @@ import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Lyrics
 import androidx.compose.material.icons.filled.PlaylistAdd
@@ -51,11 +59,9 @@ import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -89,6 +95,18 @@ import com.lyreon.app.ui.theme.LyreonBackground
 import com.lyreon.app.ui.theme.LyreonCrimson
 import com.lyreon.app.ui.theme.LyreonRose
 import com.lyreon.app.ui.theme.LyreonTextMuted
+import com.lyreon.app.ui.theme.LyreonMotion
+import com.lyreon.app.ui.theme.lyreonTween
+import com.lyreon.app.ui.theme.LyreonRadius
+import com.lyreon.app.ui.theme.LyreonScrimSheet
+import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.rememberCoroutineScope
+import com.lyreon.app.data.settings.LyreonSettings
+import com.lyreon.app.ui.vm.LocalLyreon
+import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -113,6 +131,7 @@ fun NowPlayingScreen(
     onShare: () -> Unit,
     onPlayAt: (Int) -> Unit,
     onRemoveQueueItem: (Int) -> Unit,
+    onMoveQueueItem: (Int, Int) -> Unit,
     onSetVideoMode: (Boolean) -> Unit,
     onSeekMs: (Long) -> Unit,
     modifier: Modifier = Modifier,
@@ -122,6 +141,7 @@ fun NowPlayingScreen(
     var dragging by remember { mutableStateOf(false) }
     var showQueue by remember { mutableStateOf(false) }
     var showLyrics by remember { mutableStateOf(false) }
+    var showPlaybackParams by remember { mutableStateOf(false) }
 
     // Posisi/durasi dari flow khusus (ticker 500ms) — layar ini memang satu-satunya
     // konsumen asli posisi, jadi wajar bila ia yang recompose tiap tick.
@@ -468,6 +488,22 @@ fun NowPlayingScreen(
                     active = false,
                     onClick = { showQueue = true },
                 )
+                val audioPrefs = rememberPlaybackPrefs()
+                val audioTweaked = audioPrefs.playbackSpeed != 1f || audioPrefs.pitchSemitones != 0
+                SecondaryAction(
+                    icon = Icons.Filled.Speed,
+                    label = if (audioTweaked) {
+                        stringResource(R.string.np_speed_active_fmt, audioPrefs.playbackSpeed)
+                    } else {
+                        stringResource(R.string.np_speed)
+                    },
+                    active = audioTweaked,
+                    onClick = { showPlaybackParams = true },
+                )
+            }
+
+            if (showPlaybackParams) {
+                PlaybackParamsDialog(onDismiss = { showPlaybackParams = false })
             }
 
             Spacer(Modifier.height(32.dp))
@@ -481,8 +517,9 @@ fun NowPlayingScreen(
             onDismissRequest = { showQueue = false },
             sheetState = sheetState,
             containerColor = LyreonElevated,
+            scrimColor = LyreonScrimSheet,
             contentColor = LyreonTextPrimary,
-            shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+            shape = LyreonRadius.top(),
             dragHandle = {
                 Spacer(
                     Modifier
@@ -545,8 +582,40 @@ fun NowPlayingScreen(
                                     overflow = TextOverflow.Ellipsis,
                                 )
                             }
+                            // Ubah urutan antrean (wishlist #15): naik/turun satu langkah.
+                            IconButton(
+                                onClick = { if (index > 0) onMoveQueueItem(index, index - 1) },
+                                enabled = index > 0,
+                                modifier = Modifier.size(32.dp),
+                            ) {
+                                Icon(
+                                    Icons.Filled.KeyboardArrowUp,
+                                    contentDescription = stringResource(R.string.move_up),
+                                    tint = if (index > 0) LyreonTextSecondary else LyreonSurface,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            }
+                            IconButton(
+                                onClick = {
+                                    if (index < playerState.queue.lastIndex) onMoveQueueItem(index, index + 1)
+                                },
+                                enabled = index < playerState.queue.lastIndex,
+                                modifier = Modifier.size(32.dp),
+                            ) {
+                                Icon(
+                                    Icons.Filled.KeyboardArrowDown,
+                                    contentDescription = stringResource(R.string.move_down),
+                                    tint = if (index < playerState.queue.lastIndex) LyreonTextSecondary else LyreonSurface,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            }
                             if (active) {
-                                Text(stringResource(R.string.common_playing), style = MaterialTheme.typography.labelSmall, color = LyreonCrimson)
+                                Icon(
+                                    Icons.Filled.GraphicEq,
+                                    contentDescription = stringResource(R.string.common_playing),
+                                    tint = LyreonCrimson,
+                                    modifier = Modifier.size(18.dp),
+                                )
                             } else {
                                 IconButton(onClick = { onRemoveQueueItem(index) }, modifier = Modifier.size(32.dp)) {
                                     Icon(
@@ -641,7 +710,7 @@ private fun ArtworkOrLyrics(
             .background(LyreonSurface)
             .clickable(onClick = onToggleLyrics),
     ) {
-        Crossfade(targetState = showLyrics, animationSpec = tween(450), label = "art_lyrics") { lyrics ->
+        Crossfade(targetState = showLyrics, animationSpec = lyreonTween(LyreonMotion.deliberate), label = "art_lyrics") { lyrics ->
             if (!lyrics) {
                 Box(Modifier.fillMaxSize()) {
                     if (track.thumbnailUrl.isNotBlank()) {
@@ -776,4 +845,116 @@ private fun ArtistAvatar(
             )
         }
     }
+}
+
+/**
+ * Preferensi audio (kecepatan & nada) dibaca langsung dari Pengaturan — sumber
+ * kebenaran tunggalnya di sana; PlaybackService yang menerapkannya ke ExoPlayer.
+ */
+@Composable
+private fun rememberPlaybackPrefs(): LyreonSettings {
+    val locator = LocalLyreon.current
+    val settings by locator.settings.settings
+        .collectAsStateWithLifecycle(initialValue = LyreonSettings())
+    return settings
+}
+
+/**
+ * Dialog kecepatan putar & geser nada. Nilai disimpan saat gestur selesai
+ * (bukan tiap langkah geser) supaya DataStore tidak dibanjiri tulisan.
+ */
+@Composable
+private fun PlaybackParamsDialog(onDismiss: () -> Unit) {
+    val locator = LocalLyreon.current
+    val scope = rememberCoroutineScope()
+    val settings = rememberPlaybackPrefs()
+
+    var speedDrag by remember { mutableStateOf<Float?>(null) }
+    var pitchDrag by remember { mutableStateOf<Float?>(null) }
+    val speed = speedDrag ?: settings.playbackSpeed
+    val pitch = pitchDrag ?: settings.pitchSemitones.toFloat()
+    val tweaked = settings.playbackSpeed != 1f || settings.pitchSemitones != 0
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = LyreonElevated,
+        title = {
+            Text(
+                stringResource(R.string.speed_dialog_title),
+                style = MaterialTheme.typography.titleMedium,
+                color = LyreonTextPrimary,
+            )
+        },
+        text = {
+            Column {
+                Text(
+                    stringResource(R.string.speed_label),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = LyreonTextSecondary,
+                )
+                Text(
+                    stringResource(R.string.speed_value_fmt, speed),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = LyreonCrimson,
+                )
+                Slider(
+                    value = speed,
+                    onValueChange = { speedDrag = it },
+                    onValueChangeFinished = {
+                        speedDrag?.let { v -> scope.launch { locator.settings.setPlaybackSpeed(v) } }
+                        speedDrag = null
+                    },
+                    valueRange = 0.5f..2f,
+                )
+                Spacer(Modifier.height(14.dp))
+                Text(
+                    stringResource(R.string.pitch_label),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = LyreonTextSecondary,
+                )
+                Text(
+                    stringResource(R.string.pitch_value_fmt, pitch.roundToInt()),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = LyreonCrimson,
+                )
+                Slider(
+                    value = pitch,
+                    onValueChange = { pitchDrag = it },
+                    onValueChangeFinished = {
+                        pitchDrag?.let { v ->
+                            scope.launch { locator.settings.setPitchSemitones(v.roundToInt()) }
+                        }
+                        pitchDrag = null
+                    },
+                    valueRange = -12f..12f,
+                    steps = 23,
+                )
+                if (tweaked) {
+                    TextButton(
+                        onClick = {
+                            scope.launch {
+                                locator.settings.setPlaybackSpeed(1f)
+                                locator.settings.setPitchSemitones(0)
+                            }
+                        },
+                    ) {
+                        Text(
+                            stringResource(R.string.speed_reset),
+                            style = MaterialTheme.typography.labelLarge,
+                            color = LyreonCrimson,
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text(
+                    stringResource(R.string.common_close),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = LyreonTextSecondary,
+                )
+            }
+        },
+    )
 }

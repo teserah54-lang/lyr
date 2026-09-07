@@ -1,7 +1,15 @@
+/*
+ * Copyright (C) 2026 rixz-dev
+ *
+ * SPDX-License-Identifier: GPL-3.0-only
+ */
 package com.lyreon.app.ui.screens
 
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.getValue
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -24,11 +32,9 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -39,6 +45,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.lyreon.app.R
 import com.lyreon.app.core.LocaleHelper
 import com.lyreon.app.data.settings.AudioQuality
+import com.lyreon.app.ui.theme.LyreonAccentSoft
+import com.lyreon.app.ui.theme.LyreonHairline
+import com.lyreon.app.ui.theme.LyreonRadius
 import com.lyreon.app.ui.theme.LyreonTextSecondary
 import com.lyreon.app.ui.theme.LyreonTextPrimary
 import com.lyreon.app.ui.theme.LyreonLine
@@ -52,6 +61,7 @@ import com.lyreon.app.ui.vm.SettingsViewModel
 @Composable
 fun SettingsScreen(
     vm: SettingsViewModel,
+    onOpenLicenses: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val settings by vm.settings.collectAsStateWithLifecycle()
@@ -90,15 +100,27 @@ fun SettingsScreen(
             SettingSection(stringResource(R.string.sec_appearance)) {
                 Text(stringResource(R.string.theme_label), style = MaterialTheme.typography.titleSmall, color = LyreonTextPrimary)
                 Spacer(Modifier.height(10.dp))
-                SegmentedRow(
+                SegmentedGrid(
                     options = listOf(
-                        ThemeMode.DARK to stringResource(R.string.theme_dark),
-                        ThemeMode.LIGHT to stringResource(R.string.theme_light),
                         ThemeMode.SYSTEM to stringResource(R.string.theme_system),
+                        ThemeMode.DARK to stringResource(R.string.theme_dark),
+                        ThemeMode.BLACK to stringResource(R.string.theme_black),
+                        ThemeMode.LIGHT to stringResource(R.string.theme_light),
                     ),
                     selected = settings.themeMode,
                     onSelect = vm::setTheme,
                 )
+                // Material You hanya ada di Android 12+; di bawah itu barisnya
+                // disembunyikan supaya tidak menawarkan sesuatu yang tak jalan.
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    Spacer(Modifier.height(14.dp))
+                    ToggleRow(
+                        title = stringResource(R.string.dynamic_title),
+                        body = stringResource(R.string.dynamic_body),
+                        checked = settings.dynamicColor,
+                        onChange = vm::setDynamicColor,
+                    )
+                }
                 Spacer(Modifier.height(18.dp))
                 Text(stringResource(R.string.accent_label), style = MaterialTheme.typography.titleSmall, color = LyreonTextPrimary)
                 Spacer(Modifier.height(10.dp))
@@ -135,6 +157,29 @@ fun SettingsScreen(
                     selected = settings.audioQuality,
                     onSelect = vm::setQuality,
                 )
+                Spacer(Modifier.height(14.dp))
+                ToggleRow(
+                    title = stringResource(R.string.normalize_title),
+                    body = stringResource(R.string.normalize_body),
+                    checked = settings.normalizeAudio,
+                    onChange = vm::setNormalizeAudio,
+                )
+                Spacer(Modifier.height(14.dp))
+                ToggleRow(
+                    title = stringResource(R.string.skip_silence_title),
+                    body = stringResource(R.string.skip_silence_body),
+                    checked = settings.skipSilence,
+                    onChange = vm::setSkipSilence,
+                )
+                if (settings.skipSilence) {
+                    Spacer(Modifier.height(14.dp))
+                    ToggleRow(
+                        title = stringResource(R.string.skip_silence_instant_title),
+                        body = stringResource(R.string.skip_silence_instant_body),
+                        checked = settings.skipSilenceInstant,
+                        onChange = vm::setSkipSilenceInstant,
+                    )
+                }
             }
         }
 
@@ -153,7 +198,18 @@ fun SettingsScreen(
                     checked = settings.reduceMotion,
                     onChange = vm::setReduceMotion,
                 )
+                Spacer(Modifier.height(14.dp))
+                ToggleRow(
+                    title = stringResource(R.string.kugou_title),
+                    body = stringResource(R.string.kugou_body),
+                    checked = settings.kugouEnabled,
+                    onChange = vm::setKugou,
+                )
             }
+        }
+
+        item {
+            StreamHealthSection(vm)
         }
 
         item {
@@ -275,6 +331,20 @@ fun SettingsScreen(
                         .padding(horizontal = 14.dp, vertical = 10.dp),
                 ) {
                     Text(stringResource(R.string.about_donate), style = MaterialTheme.typography.labelMedium, color = LyreonCrimson)
+                }
+                Spacer(Modifier.height(10.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .border(1.dp, LyreonLine)
+                        .clickable { onOpenLicenses() }
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                ) {
+                    Text(
+                        stringResource(R.string.licenses_title),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = LyreonTextPrimary,
+                    )
                 }
                 Spacer(Modifier.height(14.dp))
                 Text(
@@ -577,24 +647,65 @@ private fun <T> SegmentedRow(
 ) {
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         options.forEach { (value, label) ->
-            val active = value == selected
-            Box(
-                modifier = Modifier
-                    .border(1.dp, if (active) LyreonCrimson else LyreonLine)
-                    .background(
-                        if (active) LyreonCrimson.copy(alpha = 0.18f)
-                        else LyreonSurface.copy(alpha = 0.25f),
-                    )
-                    .clickable { onSelect(value) }
-                    .padding(horizontal = 16.dp, vertical = 10.dp),
-            ) {
-                Text(
-                    label,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = if (active) LyreonTextPrimary else LyreonTextSecondary,
-                )
+            SegmentChip(label = label, active = value == selected, onClick = { onSelect(value) })
+        }
+    }
+}
+
+/**
+ * Varian [SegmentedRow] yang membungkus ke baris baru (2 kolom) — dipakai untuk
+ * pilihan tema yang kini empat butir: SISTEM · GELAP · HITAM · KERTAS.
+ */
+@Composable
+private fun <T> SegmentedGrid(
+    options: List<Pair<T, String>>,
+    selected: T,
+    onSelect: (T) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        options.chunked(2).forEach { rowItems ->
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                rowItems.forEach { (value, label) ->
+                    Box(Modifier.weight(1f)) {
+                        SegmentChip(
+                            label = label,
+                            active = value == selected,
+                            onClick = { onSelect(value) },
+                            fill = true,
+                        )
+                    }
+                }
+                // Pengisi agar butir ganjil tetap selebar setengah baris.
+                if (rowItems.size == 1) Spacer(Modifier.weight(1f))
             }
         }
+    }
+}
+
+/** Satu butir pilihan: sudut membulat sedang, garis rambut, latar aksen redup. */
+@Composable
+private fun SegmentChip(
+    label: String,
+    active: Boolean,
+    onClick: () -> Unit,
+    fill: Boolean = false,
+) {
+    val shape = RoundedCornerShape(LyreonRadius.sm)
+    Box(
+        modifier = Modifier
+            .then(if (fill) Modifier.fillMaxWidth() else Modifier)
+            .clip(shape)
+            .border(1.dp, if (active) LyreonCrimson else LyreonHairline, shape)
+            .background(if (active) LyreonAccentSoft else LyreonSurface.copy(alpha = 0.25f))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        contentAlignment = if (fill) Alignment.Center else Alignment.CenterStart,
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelMedium,
+            color = if (active) LyreonTextPrimary else LyreonTextSecondary,
+        )
     }
 }
 
@@ -605,10 +716,12 @@ private fun ToggleRow(
     checked: Boolean,
     onChange: (Boolean) -> Unit,
 ) {
+    val shape = RoundedCornerShape(LyreonRadius.sm)
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .border(1.dp, LyreonLine)
+            .clip(shape)
+            .border(1.dp, LyreonHairline, shape)
             .background(LyreonSurface.copy(alpha = 0.3f))
             .padding(14.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -686,4 +799,201 @@ private fun findActivity(context: android.content.Context): android.app.Activity
         ctx = ctx.baseContext
     }
     return null
+}
+
+// ======================================================================
+// Kesehatan stream & diagnostik tangga klien
+//
+// Lyreon ANONIM (tanpa cookie akun): yang bisa ditindaklanjuti pengguna saat
+// YouTube menutup klien adalah melihat klien mana yang masih hidup, menyalin
+// laporannya, dan mereset cache stream. Semua itu ada di bagian ini.
+// ======================================================================
+
+@Composable
+private fun HealthButton(
+    label: String,
+    accent: Boolean = false,
+    onClick: () -> Unit,
+) {
+    val borderColor = if (accent) LyreonCrimson else LyreonLine
+    Row(
+        modifier = Modifier
+            .border(1.dp, borderColor)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 9.dp),
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelMedium,
+            color = if (accent) LyreonCrimson else LyreonTextPrimary,
+        )
+    }
+}
+
+// ======================================================================
+// Kesehatan stream + diagnostik tangga klien
+// ======================================================================
+
+@Composable
+private fun StreamHealthSection(vm: SettingsViewModel) {
+    val health by vm.health.collectAsStateWithLifecycle()
+    val probe by vm.probe.collectAsStateWithLifecycle()
+    val running by vm.probeRunning.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+
+    SettingSection(stringResource(R.string.sec_stream_health)) {
+        val levelLabel = when (health.level) {
+            com.lyreon.app.player.StreamHealthLevel.OK -> stringResource(R.string.health_ok)
+            com.lyreon.app.player.StreamHealthLevel.DEGRADED -> stringResource(R.string.health_degraded)
+            com.lyreon.app.player.StreamHealthLevel.TRIPPED ->
+                stringResource(R.string.health_tripped, health.consecutiveFailures)
+        }
+        Text(levelLabel, style = MaterialTheme.typography.titleSmall, color = LyreonTextPrimary)
+        Spacer(Modifier.height(6.dp))
+        Text(
+            health.message ?: stringResource(R.string.health_body),
+            style = MaterialTheme.typography.bodySmall,
+            color = LyreonTextMuted,
+        )
+        if (health.sabrSuspected) {
+            Spacer(Modifier.height(8.dp))
+            Text(
+                stringResource(R.string.health_sabr_hint),
+                style = MaterialTheme.typography.bodySmall,
+                color = LyreonTextSecondary,
+            )
+        }
+        if (health.level != com.lyreon.app.player.StreamHealthLevel.OK) {
+            Spacer(Modifier.height(12.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                HealthButton(stringResource(R.string.health_retry), accent = true) { vm.retryStream() }
+                HealthButton(stringResource(R.string.health_dismiss)) { vm.dismissHealthAlert() }
+            }
+        }
+
+        Spacer(Modifier.height(16.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                stringResource(R.string.health_diag_title),
+                style = MaterialTheme.typography.labelMedium,
+                color = LyreonCrimson,
+            )
+            Spacer(Modifier.width(12.dp))
+            Box(Modifier.weight(1f).height(1.dp).background(LyreonLine))
+        }
+        Spacer(Modifier.height(8.dp))
+        Text(
+            stringResource(R.string.health_diag_body),
+            style = MaterialTheme.typography.bodySmall,
+            color = LyreonTextMuted,
+        )
+        Spacer(Modifier.height(10.dp))
+        HealthButton(
+            if (running) stringResource(R.string.health_test_running) else stringResource(R.string.health_test),
+        ) { vm.runStreamTest(null) }
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            HealthButton(stringResource(R.string.health_copy)) {
+                val text = vm.diagnosticsReport()
+                clipboard.setText(androidx.compose.ui.text.AnnotatedString(text))
+                android.widget.Toast.makeText(
+                    context,
+                    context.getString(R.string.health_copied),
+                    android.widget.Toast.LENGTH_SHORT,
+                ).show()
+            }
+            HealthButton(stringResource(R.string.health_reset)) { vm.resetStreaming() }
+        }
+
+        probe?.let { report ->
+            Spacer(Modifier.height(12.dp))
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(1.dp, LyreonLine)
+                    .background(LyreonSurface.copy(alpha = 0.3f))
+                    .padding(12.dp),
+            ) {
+                Text(
+                    if (report.anyPathWorks) {
+                        stringResource(R.string.health_test_ok)
+                    } else {
+                        stringResource(R.string.health_test_fail)
+                    },
+                    style = MaterialTheme.typography.labelMedium,
+                    color = if (report.anyPathWorks) LyreonCrimson else LyreonTextPrimary,
+                )
+                Spacer(Modifier.height(8.dp))
+                DiagLine(
+                    stringResource(
+                        R.string.health_test_extractor,
+                        if (report.extractorOk) {
+                            stringResource(R.string.health_test_extractor_ok, report.extractorAudioStreams, report.extractorMs.toInt())
+                        } else {
+                            report.extractorError.ifBlank { stringResource(R.string.health_test_extractor_fail) }
+                        },
+                    ),
+                )
+                DiagLine(
+                    stringResource(
+                        R.string.health_test_ladder,
+                        report.ladder.usableClient
+                            ?: stringResource(R.string.health_test_ladder_none),
+                    ),
+                )
+                // Jalur HLS: manifest bisa diputar Lyreon, jadi ini kabar baik
+                // (bukan kegagalan) selama tidak ada URL audio langsung.
+                report.ladder.manifestClient?.let { client ->
+                    DiagLine(stringResource(R.string.health_test_manifest, client))
+                }
+                // Temuan Meld: URL yang dikembalikan YouTube bisa jadi hanya pratinjau
+                // ~1 MiB (403 sesudahnya). Baris ini yang membedakan "ada URL" dari
+                // "URL itu bisa dibaca sampai habis".
+                if (report.ladder.cdnRejected) {
+                    DiagLine(stringResource(R.string.health_test_cdn_reject))
+                }
+                report.ladder.urlOnlyClient?.let { client ->
+                    DiagLine(stringResource(R.string.health_test_url_only, client))
+                }
+                DiagLine(
+                    stringResource(R.string.health_test_visitor, report.ladder.visitorOrigin),
+                    dim = true,
+                )
+                if (report.ladder.sabrOnly) {
+                    DiagLine(stringResource(R.string.health_test_sabr))
+                }
+                if (report.ladder.drmOnly) {
+                    DiagLine(stringResource(R.string.health_test_drm))
+                }
+                if (report.ladder.hlsOnly && report.ladder.manifestClient == null) {
+                    DiagLine(stringResource(R.string.health_test_hls))
+                }
+                Spacer(Modifier.height(8.dp))
+                report.ladder.attempts.forEach { attempt ->
+                    DiagLine(
+                        "${attempt.client} → ${attempt.verdict} (${attempt.elapsedMs}ms)" +
+                            if (attempt.detail.isBlank()) "" else " · ${attempt.detail}",
+                        dim = true,
+                    )
+                }
+                if (report.diagnostics.isNotEmpty()) {
+                    Spacer(Modifier.height(8.dp))
+                    DiagLine(stringResource(R.string.health_test_recent), dim = true)
+                    report.diagnostics.take(8).forEach { DiagLine(it, dim = true) }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DiagLine(text: String, dim: Boolean = false) {
+    Text(
+        text,
+        style = MaterialTheme.typography.bodySmall,
+        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+        color = if (dim) LyreonTextMuted else LyreonTextSecondary,
+    )
+    Spacer(Modifier.height(2.dp))
 }

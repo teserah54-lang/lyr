@@ -127,6 +127,13 @@
     <string name="lyrics_error">Gagal memuat lirik — periksa koneksi.</string>
     <string name="lyrics_instrumental">Instrumental — tidak ada lirik.</string>
     <string name="lyrics_source">Lirik oleh LRCLIB</string>
+    <string name="lyrics_source_fmt">Lirik oleh %1$s</string>
+    <string name="lyrics_offset_minus">Mundurkan lirik 0,5 detik</string>
+    <string name="lyrics_offset_plus">Majukan lirik 0,5 detik</string>
+    <string name="lyrics_offset_value">%1$.1f dtk</string>
+    <string name="lyrics_offset_reset">Setel ulang</string>
+    <string name="kugou_title">Sumber lirik KuGou</string>
+    <string name="kugou_body">Coba KuGou bila LRCLIB tidak menemukan lirik — cakupan lebih luas, terutama lagu Asia.</string>
 
     <!-- Aksi lagu (sheet) -->
     <string name="act_play_next">PUTAR SETELAH INI</string>
@@ -158,6 +165,9 @@
     <string name="theme_dark">GELAP</string>
     <string name="theme_light">KERTAS</string>
     <string name="theme_system">SISTEM</string>
+    <string name="theme_black">HITAM</string>
+    <string name="dynamic_title">Warna dinamis (Material You)</string>
+    <string name="dynamic_body">Ambil palet dari wallpaper (Android 12+). Warna aksen kustom diabaikan saat opsi ini aktif.</string>
     <string name="quality_label">Kualitas stream (audio-only)</string>
     <string name="quality_body">Berlaku untuk streaming &amp; unduhan. Terbaik ≈ 160+ kbps Opus/M4A.</string>
     <string name="quality_high">TERBAIK</string>
@@ -167,6 +177,38 @@
     <string name="autoplay_body">Saat antrean habis, lanjutkan dengan lagu-lagu terkait dari YouTube.</string>
     <string name="reduce_title">Reduce motion</string>
     <string name="reduce_body">Kurangi animasi untuk perangkat kelas menengah ke bawah.</string>
+    <string name="common_close">Tutup</string>
+    <string name="np_speed">KECEPATAN</string>
+    <string name="np_speed_active_fmt">%1$.2f×</string>
+    <string name="speed_dialog_title">Kecepatan &amp; nada</string>
+    <string name="speed_label">Kecepatan putar</string>
+    <string name="speed_value_fmt">%1$.2f×</string>
+    <string name="pitch_label">Geser nada (pitch)</string>
+    <string name="pitch_value_fmt">%1$+d semitone</string>
+    <string name="speed_reset">Kembalikan normal</string>
+    <string name="skip_silence_title">Lewati keheningan</string>
+    <string name="skip_silence_body">Buang bagian sunyi (jeda panjang, intro kosong) dari audio yang diputar.</string>
+    <string name="skip_silence_instant_title">Lompat hening (agresif)</string>
+    <string name="skip_silence_instant_body">Bila sunyi lebih dari 2 detik masih terdengar, lompat 15 detik ke depan. Butuh opsi di atas aktif.</string>
+    <string name="normalize_title">Samakan volume lagu</string>
+    <string name="normalize_body">Naik-turunkan volume otomatis memakai data loudness YouTube agar semua lagu terdengar setara (maks +3 dB).</string>
+    <string name="licenses_title">Lisensi sumber terbuka</string>
+    <string name="licenses_app_heading">Lyreon — GPL-3.0-only</string>
+    <string name="licenses_app_body">Lyreon didistribusikan di bawah GNU General Public License versi 3 saja (GPL-3.0-only). Kode sumber lengkap, termasuk riwayat perubahan, tersedia di repositori proyek. Anda bebas memakai, mempelajari, mengubah, dan membagikan ulang aplikasi ini dengan lisensi yang sama.</string>
+    <string name="licenses_sec_libraries">Pustaka pihak ketiga</string>
+    <string name="licenses_sec_assets">Ikon &amp; font</string>
+    <string name="licenses_sec_ported">Kode yang diporting (GPL-3.0)</string>
+    <string name="licenses_notice_heading">Pemberitahuan Apache-2.0</string>
+    <string name="licenses_notice_body">Sebagian pustaka di atas dilisensikan Apache License 2.0 dan didistribusikan apa adanya, TANPA JAMINAN APAPUN. Salinan lengkap lisensi tersedia di https://www.apache.org/licenses/LICENSE-2.0. Hak cipta masing-masing pustaka tetap milik pemiliknya.</string>
+    <string name="widget_label">Lyreon Pemutar</string>
+    <string name="widget_description">Kendalikan pemutaran Lyreon langsung dari layar utama.</string>
+    <string name="widget_empty_title">Tidak ada yang diputar</string>
+    <string name="widget_play_pause">Putar atau jeda</string>
+    <string name="browse_kicker">JELAJAH</string>
+    <string name="browse_empty_title">Halaman ini kosong</string>
+    <string name="browse_empty_body">YouTube tidak mengembalikan rak apa pun untuk halaman ini. Coba lagi beberapa saat.</string>
+    <string name="browse_genres_title">Genre &amp; Mood</string>
+    <string name="browse_genres_body">Jelajahi rak resmi YouTube Music per genre dan suasana — dipetakan langsung dari InnerTube.</string>
     <string name="language_label">Bahasa aplikasi</string>
     <string name="clear_history_title">Bersihkan riwayat dengar</string>
     <string name="clear_history_body">Menghapus catatan Recently Played (favorit &amp; playlist tetap aman).</string>
@@ -268,4 +310,42 @@
     <string name="region_america">Amerika</string>
     <string name="region_africa">Afrika</string>
     <string name="region_arab">Arab</string>
+    <!-- Kesehatan stream & diagnostik tangga klien -->
+    <string name="sec_stream_health">KESEHATAN STREAM</string>
+    <string name="health_ok">Normal — tidak ada kegagalan beruntun.</string>
+    <string name="health_degraded">Terganggu — sebagian lagu dilewati.</string>
+    <string name="health_tripped">Dihentikan — %1$d kegagalan beruntun.</string>
+    <string name="health_body">Pemutar berhenti melompati lagu setelah kegagalan beruntun, dan hanya melanjutkan setelah ada bukti lagu benar-benar berbunyi.</string>
+    <string name="health_sabr_hint">Terdeteksi pola SABR/DRM: YouTube sedang menutup URL stream untuk klien anonim. Lyreon tidak memakai akun — coba lagi beberapa saat, atau perbarui app bila berlanjut.</string>
+    <string name="health_retry">COBA LAGI</string>
+    <string name="health_dismiss">TUTUP</string>
+    <string name="health_diag_title">Diagnostik klien</string>
+    <string name="health_diag_body">Tes ini mencoba seluruh tangga klien InnerTube, menguji tiap URL audio dengan permintaan byte terakhir, lalu melaporkan klien mana yang benar-benar bisa diputar — berguna tiap kali YouTube mengubah kebijakan.</string>
+    <string name="health_test_running">MENGUJI…</string>
+    <string name="health_test_ok">Stream tersedia</string>
+    <string name="health_test_fail">Tidak ada jalur yang memberi URL audio</string>
+    <string name="health_test_extractor">Extractor: %1$s</string>
+    <string name="health_test_extractor_ok">OK · %1$d stream audio · %2$d ms</string>
+    <string name="health_test_extractor_fail">gagal</string>
+    <string name="health_test_ladder">Tangga klien: audio via %1$s</string>
+    <string name="health_test_ladder_none">tidak ada klien yang berhasil</string>
+    <string name="health_test">Tes koneksi</string>
+    <string name="health_copy">Salin diagnostik</string>
+    <string name="health_copied">Diagnostik disalin ke papan klip</string>
+    <string name="health_reset">Reset cache stream</string>
+    <string name="health_test_manifest">Manifest HLS tersedia via %1$s (bisa diputar)</string>
+    <string name="health_test_cdn_reject">URL audio ditolak CDN (403 / pratinjau ~1 MiB) pada sebagian klien</string>
+    <string name="health_test_url_only">%1$s memberi URL tetapi tidak lolos uji baca</string>
+    <string name="health_test_visitor">visitorData: %1$s</string>
+    <string name="health_test_drm">Sebagian klien membalas format ber-DRM (butuh sesi guest YouTube)</string>
+    <string name="health_test_sabr">SABR-only terdeteksi pada sebagian klien</string>
+    <string name="health_test_hls">Hanya HLS yang tersedia (perlu pemutar HLS)</string>
+    <string name="health_test_recent">Riwayat terbaru:</string>
+
+    <!-- Pesan pemutar / circuit breaker -->
+    <string name="stream_reloading">Memuat ulang stream…</string>
+    <string name="stream_track_skipped">Track dilewati (stream tidak tersedia)</string>
+    <string name="stream_retrying">Mencoba memutar ulang…</string>
+    <string name="stream_tripped_sabr_anonymous">YouTube sedang mengunci stream untuk pemutaran anonim (SABR/poToken). Antrean tetap tersimpan — coba lagi beberapa menit, atau buka Pengaturan → Kesehatan stream untuk melihat klien mana yang masih hidup.</string>
+    <string name="stream_snackbar_action">PENGATURAN</string>
 </resources>

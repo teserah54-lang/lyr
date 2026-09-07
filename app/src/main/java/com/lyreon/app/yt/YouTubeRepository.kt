@@ -1,3 +1,8 @@
+/*
+ * Copyright (C) 2026 rixz-dev
+ *
+ * SPDX-License-Identifier: GPL-3.0-only
+ */
 package com.lyreon.app.yt
 
 import com.lyreon.app.data.model.LyreonTrack
@@ -58,21 +63,28 @@ object LyreonHttp {
             .retryOnConnectionFailure(true)
             .addInterceptor { chain ->
                 val orig = chain.request()
-                val urlStr = orig.url.toString()
+                val url = orig.url
                 val reqBuilder = orig.newBuilder()
 
-                if (urlStr.contains("googlevideo.com")) {
-                    if (urlStr.contains("c=ANDROID_VR") || urlStr.contains("c=ANDROID")) {
-                        reqBuilder.header("User-Agent", "com.google.android.youtube/19.45.38 (Linux; U; Android 14) gzip")
+                if (url.host.endsWith("googlevideo.com")) {
+                    // CDN mencocokkan User-Agent request dengan klien yang MENCETAK URL
+                    // (parameter `c=` + `cver=`). UA yang melenceng adalah penyebab klasik
+                    // 403 padahal URL-nya sah — dan Lyreon dulu menebak dari `c=` saja lalu
+                    // memasang UA app lawas (untuk `c=ANDROID_VR` yang terpasang justru
+                    // `com.google.android.youtube/19.45.38`: nama paket salah, versi salah).
+                    // Sekarang UA diambil dari spec yang sama dengan tangga klien, sehingga
+                    // request pemutaran identik dengan probe `StreamUrlValidator`.
+                    val specUa = com.lyreon.app.yt.innertube.PlayerClientLadder
+                        .streamUserAgentFor(url.queryParameter("c"), url.queryParameter("cver"))
+                    if (specUa != null) {
+                        reqBuilder.header("User-Agent", specUa)
+                        // Samakan dengan probe: tanpa Origin/Referer.
                         reqBuilder.removeHeader("Referer")
                         reqBuilder.removeHeader("Origin")
-                    } else if (urlStr.contains("c=IOS")) {
-                        reqBuilder.header("User-Agent", "com.google.ios.youtube/19.45.4 (iPhone14,5; U; CPU iOS 17_6 like Mac OS X)")
-                        reqBuilder.removeHeader("Referer")
-                        reqBuilder.removeHeader("Origin")
-                    } else if (urlStr.contains("c=TVHTML5")) {
-                        reqBuilder.header("User-Agent", "Mozilla/5.0 (PlayStation; PlayStation 4/11.50) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15")
-                        reqBuilder.header("Origin", "https://www.youtube.com")
+                    } else if (url.queryParameter("sabr") != null) {
+                        // URL SABR: tidak bisa di-GET biasa. Biarkan apa adanya supaya
+                        // errornya terbaca, jangan dipakaikan UA web.
+                        reqBuilder.header("User-Agent", USER_AGENT)
                     } else {
                         reqBuilder.header("User-Agent", USER_AGENT)
                         reqBuilder.header("Referer", "https://www.youtube.com/")
@@ -104,6 +116,38 @@ data class ResolvedAudio(
      * sebagai cadangan otomatis, tanpa intervensi pengguna).
      */
     val fallbackUrl: String? = null,
+    /**
+     * True bila [url] adalah **manifest HLS** (m3u8), bukan file audio progresif.
+     * Jalur ini dipakai saat klien anonim hanya diberi `hlsManifestUrl` — manifest
+     * HLS tidak menuntut poToken GVS, berbeda dari URL langsung. Player menukar
+     * `MediaItem` ke URL ini dengan [mimeType] m3u8 supaya `media3-exoplayer-hls`
+     * yang memutarnya.
+     */
+    val isManifest: Boolean = false,
+    /**
+     * Panjang file dalam byte (dari `adaptiveFormats[].contentLength`, atau `clen=`
+     * di URL). Dipakai [com.lyreon.app.yt.innertube.StreamUrlValidator] untuk
+     * mem-probe **byte terakhir** file — satu-satunya cara mendeteksi URL yang
+     * sebenarnya cuma pratinjau ~1 MiB dan akan 403 di tengah lagu.
+     */
+    val contentLength: Long = 0L,
+    /**
+     * Loudness referensi dari YouTube (`loudnessDb`, atau `perceptualLoudnessDb`
+     * bila itu yang ada) untuk format audio terpilih, dalam dB. Dipakai normalisasi
+     * volume per lagu: gain = -loudnessDb (dijepit) lewat `LoudnessEnhancer`.
+     * `null` = YouTube tidak memberi data untuk klien/format ini.
+     */
+    val loudnessDb: Float? = null,
+    /** Kunci klien InnerTube yang mencetak URL ini (`visionos`, `android_vr`, …). */
+    val clientKey: String = "",
+    /**
+     * False HANYA untuk jalur cadangan terakhir: semua URL ditolak CDN dan tidak ada
+     * manifest yang hidup, jadi URL yang ditolak itu tetap diserahkan ke pemutar
+     * (aturan Meld: pratinjau ~1 MiB lebih baik daripada tidak ada stream). Pemutaran
+     * mungkin berhenti di tengah lagu; **unduhan menolak** memakai URL seperti ini
+     * supaya tidak menyimpan file terpotong diam-diam.
+     */
+    val validated: Boolean = true,
 )
 
 data class YtTrackBundle(
@@ -151,6 +195,9 @@ class YouTubeRepository {
     companion object {
         private const val TAG = "LyraArtistAvatar"
 
+        /** Batas tunggu player response di extractor (detik). */
+        private const val LOADING_TIMEOUT_SEC = 12
+
         @Volatile
         private var initialized = false
 
@@ -163,6 +210,19 @@ class YouTubeRepository {
                     OkHttpDownloader.init(LyreonHttp.extractClient),
                     Localization("en", "US"),
                 )
+                // Knob extractor: batas tunggu player response dinaikkan (default
+                // fork 5 s terlalu pendek di jaringan seluler) dan panggilan
+                // dislike pihak ketiga dimatikan (tidak dipakai Lyreon — satu
+                // request ke returnyoutubedislikeapi.com hilang per pemutaran).
+                runCatching { ServiceList.YouTube.setLoadingTimeout(LOADING_TIMEOUT_SEC) }
+                    .onFailure { Log.w(TAG, "setLoadingTimeout gagal: ${it.message}") }
+                runCatching { ServiceList.YouTube.setFetchDislike(false) }
+                    .onFailure { Log.w(TAG, "setFetchDislike gagal: ${it.message}") }
+                // Lyreon selalu ANONIM: `ServiceList.YouTube.setTokens()` sengaja
+                // tidak pernah dipanggil (keputusan produk — pengguna tidak perlu
+                // mengambil cookie). Konsekuensinya extractor hanya memakai jalur
+                // klien anonimnya; jalur tangga klien InnerTube di InnertubeFallback
+                // yang menutup sisanya.
                 initialized = true
             }
         }
@@ -301,75 +361,146 @@ class YouTubeRepository {
      * Blocking — dipanggil dari ResolvingDataSource (thread loader ExoPlayer)
      * dan dari layanan unduhan. Memilih stream audio-only sesuai kualitas.
      *
-     * Jalur utama = MetrolistExtractor (NewPipe). Bila gagal/kosong, FALLBACK ke
-     * ekstraktor InnerTube langsung ke Google sebagai cadangan utama (tanpa server perantara).
+     * Urutan jalur:
+     *  1. **MetrolistExtractor** (NewPipe) — dilewati bila [PlayerClientLadder]
+     *     baru saja membuktikan extractor membalas SABR-only berulang (bypass
+     *     10 menit), supaya tiap lagu tidak membayar timeout extractor dulu.
+     *  2. **Tangga klien InnerTube anonim** ([InnertubeFallback]) — URL langsung
+     *     dari klien bebas poToken, atau manifest HLS bila hanya itu yang ada.
+     *
+     * @param allowManifest false untuk unduhan: `DownloadManager` hanya bisa
+     *   mengunduh file progresif, jadi manifest HLS tidak boleh dipilih di sana.
      */
-    fun resolveAudioBlocking(videoId: String, quality: AudioQuality): ResolvedAudio {
-        val info = try {
-            StreamInfo.getInfo(ServiceList.YouTube, "https://www.youtube.com/watch?v=$videoId")
-        } catch (e: Exception) {
-            // Metrolist gagal → coba jalur fallback InnerTube
-            return fallbackResolve(videoId, quality, cause = e)
-        }
-        val streams: List<AudioStream> = info.audioStreams.orEmpty()
-            .filter { it.content.isNullOrBlank().not() }
+    fun resolveAudioBlocking(
+        videoId: String,
+        quality: AudioQuality,
+        allowManifest: Boolean = true,
+    ): ResolvedAudio {
+        if (!com.lyreon.app.yt.innertube.PlayerClientLadder.extractorBypassed()) {
+            val info = try {
+                StreamInfo.getInfo(ServiceList.YouTube, "https://www.youtube.com/watch?v=$videoId")
+            } catch (e: Exception) {
+                // Metrolist gagal → catat alasannya (SABR-only vs error per-video),
+                // lalu coba jalur fallback InnerTube.
+                noteExtractorFailure(videoId, e)
+                return fallbackResolve(videoId, quality, cause = e, allowManifest = allowManifest)
+            }
+            val rawStreams: List<AudioStream> = info.audioStreams.orEmpty()
+                .filter { it.content.isNullOrBlank().not() }
+            val progressive = rawStreams.filterNot { isHlsStream(it) }
+            val manifests = rawStreams.filter { isHlsStream(it) }
 
-        if (streams.isEmpty()) {
-            // Metrolist OK tapi tanpa stream audio → fallback InnerTube
-            return fallbackResolve(videoId, quality, cause = null)
-        }
+            // URL langsung lebih hemat (audio-only). Manifest HLS dipakai bila
+            // tidak ada pilihan lain — Lyreon memutarnya lewat media3-exoplayer-hls.
+            val streams: List<AudioStream> = when {
+                progressive.isNotEmpty() -> progressive
+                allowManifest && manifests.isNotEmpty() -> manifests
+                else -> emptyList()
+            }
 
-        fun bitrateOf(s: AudioStream): Int = when {
-            s.averageBitrate > 0 -> s.averageBitrate
-            s.bitrate > 0 -> s.bitrate
-            else -> -1
-        }
-
-        val scored = streams.map { it to bitrateOf(it) }
-
-        val chosen = when (quality) {
-            AudioQuality.HIGH -> scored
-                .filter { it.second > 0 }
-                .maxWithOrNull(compareBy<Pair<AudioStream, Int>> { it.second }
-                    .thenBy { if (it.first.format?.suffix == "m4a") 1 else 0 })
-            AudioQuality.DATA_SAVER -> scored
-                .filter { it.second > 0 }
-                .minWithOrNull(compareBy<Pair<AudioStream, Int>> { it.second }
-                    .thenBy { if (it.first.format?.suffix == "m4a") 0 else 1 })
-            AudioQuality.BALANCED -> scored
-                .filter { it.second > 0 }
-                .minWithOrNull(
-                    compareBy<Pair<AudioStream, Int>> { kotlin.math.abs(it.second - 128) }
-                        .thenBy { if (it.first.format?.suffix == "m4a") -1 else 0 },
+            if (streams.isEmpty()) {
+                // Metrolist OK tapi tanpa stream audio → fallback InnerTube
+                com.lyreon.app.yt.innertube.PlayerClientLadder.push(
+                    "extractor: 0 stream audio untuk $videoId " +
+                        "(mentah=${rawStreams.size}, HLS=${manifests.size})",
                 )
-        } ?: scored.first()
+                return fallbackResolve(videoId, quality, cause = null, allowManifest = allowManifest)
+            }
+            com.lyreon.app.yt.innertube.PlayerClientLadder.noteExtractorSuccess()
 
-        val stream = chosen.first
-        val url = stream.content
-        val format = stream.format
-        val suffix = format?.suffix ?: "m4a"
-        val mime = format?.mimeType ?: "audio/mp4"
-        val bitrateKbps = (chosen.second.takeIf { it > 0 } ?: 128)
+            fun bitrateOf(s: AudioStream): Int = when {
+                s.averageBitrate > 0 -> s.averageBitrate
+                s.bitrate > 0 -> s.bitrate
+                else -> -1
+            }
 
-        // Kandidat cadangan dari keluarga format BERBEDA (m4a ↔ webm/opus),
-        // bitrate sedekat mungkin dengan pilihan utama.
-        val fallbackUrl = streams
-            .filter { it !== stream && (it.format?.suffix ?: suffix) != suffix }
-            .map { it to bitrateOf(it) }
-            .filter { it.second > 0 }
-            .minByOrNull { kotlin.math.abs(it.second - bitrateKbps) }
-            ?.first?.content
-            ?.takeUnless { it.isBlank() || it == url }
+            val scored = streams.map { it to bitrateOf(it) }
 
-        return ResolvedAudio(
-            videoId = videoId,
-            url = url,
-            mimeType = mime,
-            suffix = suffix,
-            bitrateKbps = bitrateKbps,
-            expiresAtMs = parseExpire(url),
-            fallbackUrl = fallbackUrl,
-        )
+            val chosen = when (quality) {
+                AudioQuality.HIGH -> scored
+                    .filter { it.second > 0 }
+                    .maxWithOrNull(compareBy<Pair<AudioStream, Int>> { it.second }
+                        .thenBy { if (it.first.format?.suffix == "m4a") 1 else 0 })
+                AudioQuality.DATA_SAVER -> scored
+                    .filter { it.second > 0 }
+                    .minWithOrNull(compareBy<Pair<AudioStream, Int>> { it.second }
+                        .thenBy { if (it.first.format?.suffix == "m4a") 0 else 1 })
+                AudioQuality.BALANCED -> scored
+                    .filter { it.second > 0 }
+                    .minWithOrNull(
+                        compareBy<Pair<AudioStream, Int>> { kotlin.math.abs(it.second - 128) }
+                            .thenBy { if (it.first.format?.suffix == "m4a") -1 else 0 },
+                    )
+            } ?: scored.first()
+
+            val stream = chosen.first
+            val url = stream.content
+            val format = stream.format
+            val manifest = isHlsStream(stream)
+            val suffix = if (manifest) "m3u8" else (format?.suffix ?: "m4a")
+            // Manifest HLS tidak punya MediaFormat audio di extractor → MIME wajib
+            // diisi manual, kalau tidak DefaultMediaSourceFactory salah memilih
+            // ProgressiveMediaSource dan gagal mengendus formatnya.
+            val mime = if (manifest) {
+                com.lyreon.app.yt.innertube.InnertubeFallback.HLS_MIME
+            } else {
+                format?.mimeType ?: "audio/mp4"
+            }
+            val bitrateKbps = (chosen.second.takeIf { it > 0 } ?: 128)
+
+            // Kandidat cadangan dari keluarga format BERBEDA (m4a ↔ webm/opus),
+            // bitrate sedekat mungkin dengan pilihan utama.
+            val fallbackUrl = streams
+                .filter { it !== stream && (it.format?.suffix ?: suffix) != suffix }
+                .map { it to bitrateOf(it) }
+                .filter { it.second > 0 }
+                .minByOrNull { kotlin.math.abs(it.second - bitrateKbps) }
+                ?.first?.content
+                ?.takeUnless { it.isBlank() || it == url }
+
+            val resolved = ResolvedAudio(
+                videoId = videoId,
+                url = url,
+                mimeType = mime,
+                suffix = suffix,
+                bitrateKbps = bitrateKbps,
+                expiresAtMs = parseExpire(url),
+                fallbackUrl = fallbackUrl,
+                isManifest = manifest,
+            )
+
+            // VALIDASI URL EXTRACTOR — pelajaran dari Meld.
+            //
+            // NewPipe memberi URL dari klien yang kini diwajibkan poToken GVS, sehingga
+            // URL-nya ADA tetapi 403 begitu di-GET: persis laporan "extractor streams=4,
+            // pemutar ERROR_CODE_IO_BAD_HTTP_STATUS". Probe byte terakhir membedakan
+            // keduanya; bila ditolak, jangan dipakai — turun ke tangga klien InnerTube
+            // yang memvalidasi tiap URL sebelum diserahkan ke ExoPlayer.
+            if (!manifest) {
+                val probe = com.lyreon.app.yt.innertube.StreamUrlValidator.validate(
+                    url = url,
+                    contentLength = null, // diturunkan dari `clen=` di URL
+                    label = "extractor videoId=$videoId",
+                )
+                if (!probe.accepted) {
+                    com.lyreon.app.yt.innertube.PlayerClientLadder.push(
+                        "URL extractor DITOLAK CDN (${probe.code} pada ${probe.range}) → turun ke tangga klien",
+                    )
+                    Log.w(TAG, "URL extractor untuk $videoId ditolak CDN (${probe.code}) — pakai tangga klien")
+                    return fallbackResolve(
+                        videoId = videoId,
+                        quality = quality,
+                        cause = java.io.IOException("URL extractor ditolak CDN (HTTP ${probe.code})"),
+                        allowManifest = allowManifest,
+                    )
+                }
+            }
+
+            return resolved
+        }
+
+        // Extractor sedang di-bypass (SABR berulang) → langsung tangga klien.
+        return fallbackResolve(videoId, quality, cause = null, allowManifest = allowManifest)
     }
 
     /** Ekstraktor cadangan InnerTube (langsung ke Google). */
@@ -377,17 +508,64 @@ class YouTubeRepository {
         com.lyreon.app.yt.innertube.InnertubeFallback()
     }
 
+    /**
+     * Rekam kegagalan extractor dan bedakan dua sebab yang butuh tindakan beda:
+     *  - **SABR-only** → kebijakan server YouTube, kena ke semua lagu; jalurnya
+     *    ganti klien di [PlayerClientLadder] (Lyreon tetap anonim, tanpa cookie).
+     *    Setelah berulang, extractor di-bypass sementara.
+     *  - **selain itu** → biasanya spesifik video (privat, dihapus, batas umur).
+     */
+    private fun noteExtractorFailure(videoId: String, e: Exception) {
+        val message = e.message.orEmpty()
+        if (message.contains("SABR", ignoreCase = true)) {
+            com.lyreon.app.yt.innertube.PlayerClientLadder.noteExtractorSabr(
+                "$videoId (${e.javaClass.simpleName})",
+            )
+        } else {
+            com.lyreon.app.yt.innertube.PlayerClientLadder.push(
+                "extractor gagal untuk $videoId (${e.javaClass.simpleName})",
+            )
+        }
+        Log.w(TAG, "extractor gagal untuk $videoId: ${e.javaClass.simpleName}: ${message.take(200)}")
+    }
+
     /** Resolve via jalur InnerTube; melempar IOException bila gagal juga. */
-    private fun fallbackResolve(videoId: String, quality: AudioQuality, cause: Throwable?): ResolvedAudio {
-        val resolved = runCatching { fallback.resolveAudioBlocking(videoId, quality) }.getOrNull()
-        if (resolved != null) {
+    private fun fallbackResolve(
+        videoId: String,
+        quality: AudioQuality,
+        cause: Throwable?,
+        allowManifest: Boolean = true,
+    ): ResolvedAudio {
+        try {
+            val resolved = fallback.resolveAudioBlocking(videoId, quality, allowManifest)
             Log.i("InnertubeFallback", "fallback OK untuk $videoId")
             return resolved.copy(videoId = videoId)
+        } catch (e: com.lyreon.app.yt.innertube.StreamUnavailableException) {
+            // Bawa alasan apa adanya (SABR-only / HLS-only / playability) ke atas
+            // supaya PlayerManager bisa memberi pesan yang bisa ditindaklanjuti.
+            throw e
+        } catch (e: Exception) {
+            throw IOException(
+                "Stream tidak tersedia (Metrolist + InnerTube gagal) untuk $videoId",
+                cause ?: e,
+            )
         }
-        throw IOException(
-            "Stream tidak tersedia (Metrolist + InnerTube gagal) untuk $videoId",
-            cause,
-        )
+    }
+
+    /**
+     * True bila stream ini sebenarnya manifest HLS (m3u8), bukan file audio
+     * progresif. Muncul dari `hlsManifestUrl` — jalur yang tetap terbuka untuk
+     * klien anonim (HLS tidak menuntut poToken GVS). Lyreon memutarnya lewat
+     * `media3-exoplayer-hls`, tetapi unduhan tetap menghindarinya.
+     */
+    private fun isHlsStream(stream: AudioStream): Boolean {
+        val url = stream.content.orEmpty()
+        val mime = stream.format?.mimeType.orEmpty()
+        return mime.contains("mpegurl", ignoreCase = true) ||
+            mime.contains("x-mpegURL", ignoreCase = true) ||
+            url.contains(".m3u8", ignoreCase = true) ||
+            url.contains("/api/manifest/hls_variant") ||
+            url.contains("/api/manifest/hls/")
     }
 
     private fun parseExpire(url: String): Long {
@@ -538,7 +716,11 @@ class YouTubeRepository {
     var defaultQuality: AudioQuality = AudioQuality.BALANCED
 
     /** Resolve dengan cache + anti-duplikasi request + satu serangan ulang. Boleh blocking. */
-    fun resolveCachedBlocking(videoId: String, quality: AudioQuality = defaultQuality): ResolvedAudio {
+    fun resolveCachedBlocking(
+        videoId: String,
+        quality: AudioQuality = defaultQuality,
+        allowManifest: Boolean = true,
+    ): ResolvedAudio {
         val fresh = streamCache[videoId]
         if (fresh != null && fresh.expiresAtMs - 60_000L > System.currentTimeMillis()) {
             return fresh
@@ -552,10 +734,10 @@ class YouTubeRepository {
             // Percobaan ke-2 langsung di sini: kegagalan sesaat & token basi (pot/n-sig)
             // sering sembuh dengan ekstraksi ulang yang benar-benar baru.
             val resolved = runCatching {
-                resolveAudioBlocking(videoId, quality)
+                resolveAudioBlocking(videoId, quality, allowManifest)
             }.recoverCatching {
                 Thread.sleep(350L)
-                resolveAudioBlocking(videoId, quality)
+                resolveAudioBlocking(videoId, quality, allowManifest)
             }.getOrThrow()
             streamCache[videoId] = resolved
             return resolved
@@ -589,11 +771,99 @@ class YouTubeRepository {
         fallback.invalidate(videoId)
     }
 
+    /** Buang seluruh cache URL stream di kedua jalur (extractor & InnerTube). */
+    fun invalidateAll() {
+        streamCache.clear()
+        fallback.invalidateAll()
+    }
+
+    // ------------------------------------------------------------------
+    // Diagnostik stream (Settings → "Tes koneksi")
+    // ------------------------------------------------------------------
+
+    /**
+     * Laporan satu percobaan resolusi menyeluruh: jalur extractor dulu, lalu
+     * seluruh tangga klien InnerTube. Inilah alat untuk menjawab "YouTube sedang
+     * menutup klien yang mana hari ini?" tanpa perlu membongkar APK.
+     */
+    data class StreamProbe(
+        val videoId: String,
+        val extractorOk: Boolean,
+        val extractorAudioStreams: Int,
+        val extractorMs: Long,
+        val extractorError: String,
+        val ladder: com.lyreon.app.yt.innertube.LadderProbe,
+        val diagnostics: List<String>,
+    ) {
+        /** True bila setidaknya satu jalur masih memberi URL audio yang bisa diputar. */
+        val anyPathWorks: Boolean get() = extractorOk || ladder.success
+    }
+
+    suspend fun probeStream(videoId: String): StreamProbe = withContext(Dispatchers.IO) {
+        val id = videoIdOf(videoId).ifBlank { videoId }
+        invalidate(id)
+
+        val startedAt = System.currentTimeMillis()
+        val extractorResult = runCatching {
+            StreamInfo.getInfo(ServiceList.YouTube, "https://www.youtube.com/watch?v=$id")
+        }
+        val extractorMs = System.currentTimeMillis() - startedAt
+        val info = extractorResult.getOrNull()
+        val audioCount = runCatching {
+            info?.audioStreams.orEmpty().count { !it.content.isNullOrBlank() }
+        }.getOrDefault(0)
+        val extractorError = extractorResult.exceptionOrNull()?.let { e ->
+            "${e.javaClass.simpleName}: ${e.message.orEmpty().take(180)}"
+        }.orEmpty()
+
+        val ladderProbe = runCatching { fallback.probeBlocking(id, defaultQuality) }.getOrElse { e ->
+            com.lyreon.app.yt.innertube.LadderProbe(
+                videoId = id,
+                usableClient = null,
+                audioUrlFound = false,
+                manifestClient = null,
+                sabrOnly = false,
+                hlsOnly = false,
+                drmOnly = false,
+                totalMs = 0L,
+                attempts = listOf(
+                    com.lyreon.app.yt.innertube.ProbeAttempt(
+                        client = "-",
+                        verdict = "TRANSPORT_ERROR",
+                        elapsedMs = 0L,
+                        detail = e.javaClass.simpleName,
+                    ),
+                ),
+            )
+        }
+
+        StreamProbe(
+            videoId = id,
+            extractorOk = extractorResult.isSuccess && audioCount > 0,
+            extractorAudioStreams = audioCount,
+            extractorMs = extractorMs,
+            extractorError = extractorError,
+            ladder = ladderProbe,
+            diagnostics = com.lyreon.app.yt.innertube.PlayerClientLadder.report(),
+        )
+    }
+
     suspend fun warmUp(vararg videoIds: String) = withContext(Dispatchers.IO) {
         videoIds.forEach { id ->
             runCatching { resolveCachedBlocking(id) }
         }
     }
+
+    /**
+     * Manifest HLS hasil warm-up (bila ada) untuk satu videoId — dipakai
+     * `PlayerManager.warmUpcoming` menukar `MediaItem` lagu BERIKUTNYA ke URL
+     * m3u8 + MIME yang benar sebelum lagu itu diputar, sehingga pemutar tidak
+     * perlu gagal dulu lalu retry.
+     *
+     * @return Pair(url, mimeType) atau null bila cache kosong/progresif.
+     */
+    fun cachedManifestFor(videoId: String): Pair<String, String>? =
+        streamCache[videoId]?.takeIf { it.isManifest }?.let { it.url to it.mimeType }
 
     // ------------------------------------------------------------------
     // Artis populer per benua — YouTube Music Charts (InnerTube FEmusic_charts)
@@ -611,6 +881,8 @@ class YouTubeRepository {
         val name: String,
         val thumbUrl: String,
         val subtitle: String,
+        /** browseId kanal artis (UC…) — kosong berarti halaman artis tidak tersedia. */
+        val browseId: String = "",
     )
 
     /** Wilayah kartu artis di tab Search (label di-UI per bahasa). */
@@ -723,6 +995,10 @@ class YouTubeRepository {
                     val name = textOf(flex.optJSONObject(0), "musicResponsiveListItemFlexColumnRenderer")
                     if (name.isBlank()) continue
                     val sub = textOf(flex.optJSONObject(1), "musicResponsiveListItemFlexColumnRenderer")
+                    val artistBrowseId = row.optJSONObject("navigationEndpoint")
+                        ?.optJSONObject("browseEndpoint")
+                        ?.optString("browseId")
+                        .orEmpty()
                     val thumbs = row.optJSONObject("thumbnail")
                         ?.optJSONObject("musicThumbnailRenderer")
                         ?.optJSONObject("thumbnail")
@@ -739,7 +1015,7 @@ class YouTubeRepository {
                             }
                         }
                     }
-                    out += ArtistCard(name = name, thumbUrl = thumb, subtitle = sub)
+                    out += ArtistCard(name = name, thumbUrl = thumb, subtitle = sub, browseId = artistBrowseId)
                     if (out.size >= 12) break
                 }
                 if (out.isNotEmpty()) return out
@@ -859,5 +1135,90 @@ class YouTubeRepository {
                 }
             }
         }.awaitAll()
+    }
+
+    // ------------------------------------------------------------------
+    // Browse generik — halaman artis, album, genre/mood (gelombang 6)
+    //
+    //   POST /youtubei/v1/browse?key=…  { browseId, params?, gl }
+    //
+    // Bentuk responsnya beragam (rak baris, carousel kartu, grid), jadi
+    // penguraiannya dipisah ke [BrowseParser] yang murni dan bebas Android.
+    // Hasil di-cache 6 jam seperti charts: halaman artis tidak berubah cepat,
+    // dan ini membuat navigasi bolak-balik terasa instan.
+    // ------------------------------------------------------------------
+
+    private val browseLock = Any()
+
+    /** Umur cache halaman browse: 6 jam, sama seperti cache charts. */
+    private val BROWSE_CACHE_MS = 6L * 3600_000L
+    private val browseCache = HashMap<String, Pair<Long, BrowsePage>>()
+
+    /**
+     * Ambil satu halaman browse. Kegagalan jaringan/parse menghasilkan
+     * [BrowsePage] kosong (bukan exception) supaya layar cukup menampilkan
+     * keadaan kosong dengan tombol coba lagi.
+     *
+     * @param browseId id kanal artis (UC…), "FEmusic_moods_and_genres",
+     *   "FEmusic_moods_and_genres_category", "VL"+playlistId, dsb.
+     * @param params token tambahan (dipakai kategori genre/mood)
+     */
+    suspend fun browsePage(browseId: String, params: String? = null, gl: String = "US"): BrowsePage =
+        withContext(Dispatchers.IO) {
+            val cacheKey = "$browseId|${params.orEmpty()}|$gl"
+            synchronized(browseLock) {
+                browseCache[cacheKey]?.takeIf { System.currentTimeMillis() - it.first < BROWSE_CACHE_MS }
+            }?.let { return@withContext it.second }
+
+            val page = runCatching { fetchBrowsePage(browseId, params, gl) }
+                .getOrElse { err ->
+                    Log.w(TAG, "browsePage($browseId) gagal: ${err.message}")
+                    BrowsePage(browseId = browseId)
+                }
+            if (!page.isEmpty) {
+                synchronized(browseLock) { browseCache[cacheKey] = System.currentTimeMillis() to page }
+            }
+            page
+        }
+
+    /** Hapus cache browse (dipanggil saat pengguna membersihkan cache aplikasi). */
+    fun clearBrowseCache() {
+        synchronized(browseLock) { browseCache.clear() }
+    }
+
+    private fun fetchBrowsePage(browseId: String, params: String?, gl: String): BrowsePage {
+        val key = fetchInnertubeKey()
+        val payload = JSONObject()
+            .put(
+                "context",
+                JSONObject().put(
+                    "client",
+                    JSONObject()
+                        .put("clientName", "WEB_REMIX")
+                        .put("clientVersion", "1.20260804.01.00")
+                        .put("hl", "en")
+                        .put("gl", gl),
+                ),
+            )
+            .put("browseId", browseId)
+            .apply { if (!params.isNullOrBlank()) put("params", params) }
+            .toString()
+            .toRequestBody("application/json".toMediaType())
+
+        val req = Request.Builder()
+            .url("https://music.youtube.com/youtubei/v1/browse?key=$key")
+            .header("User-Agent", LyreonHttp.USER_AGENT)
+            .header("Origin", "https://music.youtube.com")
+            .post(payload)
+            .build()
+
+        val root = LyreonHttp.streamClient.newCall(req).execute().use { resp ->
+            if (!resp.isSuccessful) {
+                Log.w(TAG, "fetchBrowsePage($browseId): HTTP ${resp.code}")
+                return BrowsePage(browseId = browseId)
+            }
+            JSONObject(resp.body.string())
+        }
+        return BrowseParser.parse(root, browseId)
     }
 }

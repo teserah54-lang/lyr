@@ -1,7 +1,12 @@
+/*
+ * Copyright (C) 2026 rixz-dev
+ *
+ * SPDX-License-Identifier: GPL-3.0-only
+ */
 package com.lyreon.app.ui.components
 
+import androidx.compose.runtime.getValue
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -26,7 +31,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -48,6 +52,8 @@ import com.lyreon.app.ui.theme.LyreonTextPrimary
 import com.lyreon.app.ui.theme.LyreonLine
 import com.lyreon.app.ui.theme.LyreonBackground
 import com.lyreon.app.ui.theme.LyreonCrimson
+import com.lyreon.app.ui.theme.LyreonMotion
+import com.lyreon.app.ui.theme.lyreonSpring
 
 /** Genre reel dari desain asli — kini memicu kueri YouTube nyata. */
 @Composable
@@ -111,7 +117,7 @@ private fun GenreReelCard(
 ) {
     val animScale by animateFloatAsState(
         targetValue = if (selected) 1.02f else 1f,
-        animationSpec = spring(stiffness = 300f, dampingRatio = 0.85f),
+        animationSpec = lyreonSpring(dampingRatio = LyreonMotion.dampingSoft, stiffness = LyreonMotion.stiffnessGentle),
         label = "genre_scale",
     )
     val borderColor = if (selected) LyreonCrimson else LyreonLine

@@ -1,3 +1,8 @@
+/*
+ * Copyright (C) 2026 rixz-dev
+ *
+ * SPDX-License-Identifier: GPL-3.0-only
+ */
 package com.lyreon.app.ui.theme
 
 import androidx.compose.runtime.Composable
@@ -41,6 +46,18 @@ private val LightLine = Color(0xFFE0D7CB)
 private val LightLineSoft = Color(0xFFEAE3D7)
 private val LightScrim = Color(0x7A23201E)
 
+// Palet HITAM (OLED): latar #000 murni untuk panel AMOLED, permukaan naik
+// sangat tipis agar tetap terbedakan tanpa terasa "abu-abu".
+private val BlackBackground = Color(0xFF000000)
+private val BlackSurface = Color(0xFF0A0A0A)
+private val BlackElevated = Color(0xFF141418)
+private val BlackTextPrimary = Color(0xFFF2F2F5)
+private val BlackTextSecondary = Color(0xFF9C9CA6)
+private val BlackTextMuted = Color(0xFF6A6A74)
+private val BlackLine = Color(0xFF1E1E24)
+private val BlackLineSoft = Color(0xFF15151A)
+private val BlackScrim = Color(0xF2000000)
+
 /** Cerahkan warna aksen (untuk varian "rose"). */
 internal fun lighten(c: Color, amount: Float): Color {
     val r = c.red + (1f - c.red) * amount
@@ -75,6 +92,15 @@ data class LyreonPalette(
     val scrim: Color,
     val crimson: Color,
     val rose: Color,
+    // ---- token "chrome" (gelombang tema baru, lihat notes/04) ----
+    /** Permukaan semi-transparan untuk chrome: nav bar, mini player, lembar bawah. */
+    val surfaceTranslucent: Color,
+    /** Garis rambut (≈8% putih / 12% tinta) — pengganti border tebal. */
+    val hairline: Color,
+    /** Aksen sangat redup untuk latar item terpilih / chip aktif. */
+    val accentSoft: Color,
+    /** Scrim lembar bawah & dialog: lebih ringan dari scrim penuh. */
+    val scrimSheet: Color,
 )
 
 fun lyreonDarkPalette(accent: Color = LyreonCrimsonDefault) = LyreonPalette(
@@ -90,6 +116,10 @@ fun lyreonDarkPalette(accent: Color = LyreonCrimsonDefault) = LyreonPalette(
     scrim = DarkScrim,
     crimson = accent,
     rose = lighten(accent, 0.25f),
+    surfaceTranslucent = DarkSurface.copy(alpha = 0.72f),
+    hairline = Color(0x14FFFFFF),
+    accentSoft = accent.copy(alpha = 0.14f),
+    scrimSheet = Color(0xB3000000),
 )
 
 fun lyreonLightPalette(accent: Color = LyreonCrimsonDefault): LyreonPalette {
@@ -107,6 +137,63 @@ fun lyreonLightPalette(accent: Color = LyreonCrimsonDefault): LyreonPalette {
         scrim = LightScrim,
         crimson = strong,
         rose = accent,
+        surfaceTranslucent = LightSurface.copy(alpha = 0.78f),
+        hairline = Color(0x1F23201E),
+        accentSoft = strong.copy(alpha = 0.12f),
+        scrimSheet = Color(0x6623201E),
+    )
+}
+
+/**
+ * Palet HITAM murni (mode OLED). Dipakai saat [ThemeMode.BLACK]: latar #000000,
+ * permukaan hanya naik tipis, garis rambut lebih redup supaya tidak menyilaukan.
+ */
+fun lyreonBlackPalette(accent: Color = LyreonCrimsonDefault) = LyreonPalette(
+    background = BlackBackground,
+    surface = BlackSurface,
+    elevated = BlackElevated,
+    textPrimary = BlackTextPrimary,
+    textBright = DarkTextBright,
+    textSecondary = BlackTextSecondary,
+    textMuted = BlackTextMuted,
+    line = BlackLine,
+    lineSoft = BlackLineSoft,
+    scrim = BlackScrim,
+    crimson = accent,
+    rose = lighten(accent, 0.22f),
+    surfaceTranslucent = BlackSurface.copy(alpha = 0.74f),
+    hairline = Color(0x12FFFFFF),
+    accentSoft = accent.copy(alpha = 0.16f),
+    scrimSheet = Color(0xCC000000),
+)
+
+/**
+ * Petakan skema Material 3 (mis. dari Material You / `dynamicDarkColorScheme`)
+ * ke palet LYREON sehingga token lama tetap jalan saat warna dinamis aktif.
+ *
+ * @param blackBase paksa latar #000 (mode HITAM + warna dinamis).
+ */
+fun lyreonPaletteFromScheme(s: androidx.compose.material3.ColorScheme, accent: Color, blackBase: Boolean = false): LyreonPalette {
+    val bg = if (blackBase) Color.Black else s.background
+    val surface = if (blackBase) BlackSurface else s.surface
+    val elevated = if (blackBase) BlackElevated else s.surfaceContainerHigh
+    return LyreonPalette(
+        background = bg,
+        surface = surface,
+        elevated = elevated,
+        textPrimary = if (blackBase) BlackTextPrimary else s.onBackground,
+        textBright = if (blackBase) Color.White else s.onSurface,
+        textSecondary = s.onSurfaceVariant,
+        textMuted = s.onSurfaceVariant.copy(alpha = 0.75f),
+        line = s.outlineVariant,
+        lineSoft = s.outlineVariant.copy(alpha = 0.55f),
+        scrim = s.scrim.copy(alpha = 0.9f),
+        crimson = s.primary,
+        rose = s.tertiary,
+        surfaceTranslucent = s.surfaceContainer.copy(alpha = 0.74f),
+        hairline = s.outlineVariant.copy(alpha = 0.5f),
+        accentSoft = s.primary.copy(alpha = 0.15f),
+        scrimSheet = s.scrim.copy(alpha = 0.7f),
     )
 }
 
@@ -129,6 +216,10 @@ val LyreonLineSoft: Color @Composable @ReadOnlyComposable get() = LocalLyreonPal
 val LyreonScrim: Color @Composable @ReadOnlyComposable get() = LocalLyreonPalette.current.scrim
 val LyreonCrimson: Color @Composable @ReadOnlyComposable get() = LocalLyreonPalette.current.crimson
 val LyreonRose: Color @Composable @ReadOnlyComposable get() = LocalLyreonPalette.current.rose
+val LyreonSurfaceTranslucent: Color @Composable @ReadOnlyComposable get() = LocalLyreonPalette.current.surfaceTranslucent
+val LyreonHairline: Color @Composable @ReadOnlyComposable get() = LocalLyreonPalette.current.hairline
+val LyreonAccentSoft: Color @Composable @ReadOnlyComposable get() = LocalLyreonPalette.current.accentSoft
+val LyreonScrimSheet: Color @Composable @ReadOnlyComposable get() = LocalLyreonPalette.current.scrimSheet
 
 // Token lama yang jarang dipakai — dipertahankan sebagai konstanta statis
 val LyreonTextSoft = Color(0xFFCDCDD6)

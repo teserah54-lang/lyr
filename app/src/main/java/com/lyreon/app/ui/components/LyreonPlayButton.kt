@@ -1,7 +1,11 @@
+/*
+ * Copyright (C) 2026 rixz-dev
+ *
+ * SPDX-License-Identifier: GPL-3.0-only
+ */
 package com.lyreon.app.ui.components
 
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -27,6 +31,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.lyreon.app.ui.theme.LyreonCrimson
 import com.lyreon.app.ui.theme.LyreonTextBright
+import com.lyreon.app.ui.theme.lyreonSpring
 import kotlin.math.min
 
 /**
@@ -45,11 +50,13 @@ fun LyreonPlayButton(
     showOrbit: Boolean = false,
 ) {
     val morph = remember { Animatable(if (isPlaying) 1f else 0f) }
+    // Spec diambil di luar LaunchedEffect: helper tema bersifat @Composable.
+    val morphSpec = lyreonSpring<Float>(dampingRatio = 0.72f, stiffness = 420f)
 
     LaunchedEffect(isPlaying) {
         morph.animateTo(
             targetValue = if (isPlaying) 1f else 0f,
-            animationSpec = spring(dampingRatio = 0.72f, stiffness = 420f),
+            animationSpec = morphSpec,
         )
     }
 

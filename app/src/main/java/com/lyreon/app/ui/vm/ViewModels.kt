@@ -1,3 +1,8 @@
+/*
+ * Copyright (C) 2026 rixz-dev
+ *
+ * SPDX-License-Identifier: GPL-3.0-only
+ */
 package com.lyreon.app.ui.vm
 
 import androidx.compose.runtime.Composable
@@ -18,6 +23,7 @@ import com.lyreon.app.data.model.SearchFilter
 import com.lyreon.app.data.model.YtPlaylist
 import com.lyreon.app.data.settings.AudioQuality
 import com.lyreon.app.data.taste.MusicTextAnalyzer
+import com.lyreon.app.yt.BrowseSection
 import com.lyreon.app.yt.YouTubeRepository
 import com.lyreon.app.yt.YtSearchSession
 import kotlinx.coroutines.Job
@@ -688,6 +694,48 @@ data class YtPlaylistUiState(
     val saved: Boolean = false,
 )
 
+/**
+ * Satu halaman browse InnerTube (artis, album, genre/mood, kategori).
+ * Layar yang sama dipakai untuk semuanya — bedanya hanya browseId/params.
+ */
+data class BrowseUiState(
+    val loading: Boolean = true,
+    val failed: Boolean = false,
+    val title: String = "",
+    val sections: List<BrowseSection> = emptyList(),
+)
+
+class BrowseViewModel(
+    private val locator: ServiceLocator,
+    private val browseId: String,
+    private val params: String,
+) : ViewModel() {
+
+    private val _state = MutableStateFlow(BrowseUiState())
+    val state: StateFlow<BrowseUiState> = _state.asStateFlow()
+
+    init {
+        load()
+    }
+
+    fun load() {
+        viewModelScope.launch {
+            _state.update { it.copy(loading = true, failed = false) }
+            val page = runCatching {
+                locator.youtube.browsePage(browseId, params.ifBlank { null })
+            }.getOrNull()
+            _state.update {
+                it.copy(
+                    loading = false,
+                    failed = page == null || page.isEmpty,
+                    title = page?.title.orEmpty().ifBlank { it.title },
+                    sections = page?.sections.orEmpty(),
+                )
+            }
+        }
+    }
+}
+
 class YtPlaylistViewModel(private val locator: ServiceLocator, private val url: String) : ViewModel() {
 
     private val _state = MutableStateFlow(YtPlaylistUiState())
@@ -733,8 +781,99 @@ class YtPlaylistViewModel(private val locator: ServiceLocator, private val url: 
 
 class SettingsViewModel(private val locator: ServiceLocator) : ViewModel() {
 
+    private companion object {
+        /** Video yang dipakai "Tes koneksi" bila tidak ada lagu yang diputar. */
+        const val PROBE_VIDEO_ID = "dQw4w9WgXcQ"
+    }
+
     val settings = locator.settings.settings
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), com.lyreon.app.data.settings.LyreonSettings())
+
+    /** Kondisi jalur stream dari PlayerManager (OK / DEGRADED / TRIPPED). */
+    val health = locator.player.health
+
+    private val _probe = MutableStateFlow<YouTubeRepository.StreamProbe?>(null)
+    val probe: StateFlow<YouTubeRepository.StreamProbe?> = _probe.asStateFlow()
+
+    private val _probeRunning = MutableStateFlow(false)
+    val probeRunning: StateFlow<Boolean> = _probeRunning.asStateFlow()
+
+    /**
+     * Uji seluruh jalur resolusi untuk satu video (link atau ID boleh) dan
+     * laporkan klien mana yang masih memberi URL — diagnostik SABR di lapangan.
+     */
+    fun runStreamTest(input: String?) {
+        if (_probeRunning.value) return
+        _probeRunning.value = true
+        viewModelScope.launch {
+            val target = input?.trim()?.takeIf { it.isNotBlank() }
+                ?: locator.player.state.value.currentTrack?.videoId
+                ?: PROBE_VIDEO_ID
+            _probe.value = runCatching { locator.youtube.probeStream(target) }.getOrNull()
+            _probeRunning.value = false
+        }
+    }
+
+    fun retryStream() = locator.player.retryAfterFix()
+
+    fun dismissHealthAlert() = locator.player.dismissHealthAlert()
+
+    /** Buang cache URL stream + riwayat diagnostik, lalu coba putar ulang. */
+    fun resetStreaming() {
+        locator.youtube.invalidateAll()
+        com.lyreon.app.yt.innertube.PlayerClientLadder.reset()
+        _probe.value = null
+        retryStream()
+    }
+
+    /**
+     * Laporan diagnostik lengkap sebagai teks — untuk tombol "SALIN" di layar
+     * Kesehatan Stream, supaya pengguna bisa menempelkannya ke laporan bug tanpa
+     * perlu logcat. Tidak memuat data pribadi apa pun (Lyreon anonim).
+     */
+    fun diagnosticsReport(): String {
+        val probe = _probe.value
+        val health = locator.player.health.value
+        return buildString {
+            // BuildConfig tidak diaktifkan di modul ini, jadi identitas app cukup
+            // dari SDK_INT + versi rilis yang dibaca runtime.
+            append("Lyreon (Android ").append(android.os.Build.VERSION.RELEASE)
+            append(", SDK ").append(android.os.Build.VERSION.SDK_INT).append(")\n")
+            append("health: ").append(health.level.name)
+            append(" failures=").append(health.consecutiveFailures)
+            append(" skips=").append(health.skipsInWindow)
+            append(" sabr=").append(health.sabrSuspected).append('\n')
+            append(com.lyreon.app.yt.innertube.PlayerClientLadder.snapshot())
+            if (probe != null) {
+                append("probe: ").append(probe.videoId)
+                append(" extractorOk=").append(probe.extractorOk)
+                append(" streams=").append(probe.extractorAudioStreams)
+                append(" ").append(probe.extractorMs).append("ms\n")
+                if (probe.extractorError.isNotBlank()) {
+                    append("  extractorError: ").append(probe.extractorError).append('\n')
+                }
+                append("  ladder ").append(probe.ladder.totalMs).append("ms")
+                append(" audio=").append(probe.ladder.audioUrlFound)
+                append(" hls=").append(probe.ladder.manifestClient ?: "-")
+                append(" sabr=").append(probe.ladder.sabrOnly)
+                append(" drm=").append(probe.ladder.drmOnly)
+                // `cdnRejected`/`urlOnly` = URL ada tapi tak terbaca (pratinjau ~1 MiB / 403).
+                append(" cdnRejected=").append(probe.ladder.cdnRejected)
+                append(" urlOnly=").append(probe.ladder.urlOnlyClient ?: "-")
+                append(" visitor=").append(probe.ladder.visitorOrigin).append('\n')
+                probe.ladder.attempts.forEach { a ->
+                    append("   ").append(a.client).append(" → ").append(a.verdict)
+                    append(" (").append(a.elapsedMs).append("ms)")
+                    if (a.detail.isNotBlank()) append(" · ").append(a.detail)
+                    append('\n')
+                }
+            }
+            append("riwayat:\n")
+            com.lyreon.app.yt.innertube.PlayerClientLadder.report().forEach {
+                append("  ").append(it).append('\n')
+            }
+        }
+    }
 
     fun setTheme(mode: com.lyreon.app.ui.theme.ThemeMode) {
         viewModelScope.launch { locator.settings.setThemeMode(mode) }
@@ -762,6 +901,46 @@ class SettingsViewModel(private val locator: ServiceLocator) : ViewModel() {
 
     fun setFont(key: String) {
         viewModelScope.launch { locator.settings.setFontKey(key) }
+    }
+
+    fun setDynamicColor(v: Boolean) {
+        viewModelScope.launch { locator.settings.setDynamicColor(v) }
+    }
+
+    /** Geser waktu lirik (langkah 500 ms, dijepit ±10 detik di repository). */
+    fun nudgeLyricsOffset(deltaMs: Int) {
+        viewModelScope.launch {
+            val current = locator.settings.settings.first().lyricsOffsetMs
+            locator.settings.setLyricsOffsetMs(current + deltaMs)
+        }
+    }
+
+    fun resetLyricsOffset() {
+        viewModelScope.launch { locator.settings.setLyricsOffsetMs(0) }
+    }
+
+    fun setKugou(v: Boolean) {
+        viewModelScope.launch { locator.settings.setKugouEnabled(v) }
+    }
+
+    fun setSkipSilence(v: Boolean) {
+        viewModelScope.launch { locator.settings.setSkipSilence(v) }
+    }
+
+    fun setSkipSilenceInstant(v: Boolean) {
+        viewModelScope.launch { locator.settings.setSkipSilenceInstant(v) }
+    }
+
+    fun setPlaybackSpeed(v: Float) {
+        viewModelScope.launch { locator.settings.setPlaybackSpeed(v) }
+    }
+
+    fun setPitchSemitones(v: Int) {
+        viewModelScope.launch { locator.settings.setPitchSemitones(v) }
+    }
+
+    fun setNormalizeAudio(v: Boolean) {
+        viewModelScope.launch { locator.settings.setNormalizeAudio(v) }
     }
 
     fun clearHistory() {

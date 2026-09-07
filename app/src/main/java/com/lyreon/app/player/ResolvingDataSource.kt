@@ -1,3 +1,8 @@
+/*
+ * Copyright (C) 2026 rixz-dev
+ *
+ * SPDX-License-Identifier: GPL-3.0-only
+ */
 package com.lyreon.app.player
 
 import android.content.Context
@@ -43,10 +48,22 @@ class ResolvingDataSource(
                     Uri.fromFile(java.io.File(local))
                 else -> try {
                     val resolved = youtube.resolveCachedBlocking(videoId)
+                    // Loudness format terpilih → bahan normalisasi volume per lagu.
+                    resolved.loudnessDb?.let { db ->
+                        com.lyreon.app.player.audio.LoudnessStore.record(videoId, db)
+                    }
+                    // Hasilnya manifest HLS? ProgressiveMediaSource tidak bisa
+                    // memutarnya — beri tahu PlayerManager supaya MediaItem ditukar
+                    // ke URL m3u8 + MIME yang benar (HlsMediaSource).
+                    if (resolved.isManifest) {
+                        throw HlsRequiredException(videoId, resolved.url, resolved.mimeType)
+                    }
                     resolved.fallbackUrl
                         ?.takeUnless { it.isBlank() || it == resolved.url }
                         ?.let { fallbackUri = Uri.parse(it) }
                     Uri.parse(resolved.url)
+                } catch (e: HlsRequiredException) {
+                    throw e
                 } catch (e: Exception) {
                     throw IOException("Tidak bisa menyelesaikan stream $videoId: ${e.message}", e)
                 }
@@ -116,3 +133,22 @@ class ResolvingDataSource(
         fun uriOf(videoId: String): Uri = Uri.parse("$LYREON_SCHEME://audio/$videoId")
     }
 }
+
+/**
+ * Sinyal "stream ini manifest HLS, bukan file progresif".
+ *
+ * Dilempar dari [ResolvingDataSource] (thread loader ExoPlayer) dan ditangkap
+ * `PlayerManager`, yang lalu menukar `MediaItem` lagu itu ke [manifestUrl] dengan
+ * `mimeType` [manifestMime] supaya `DefaultMediaSourceFactory` membangun
+ * `HlsMediaSource` (memerlukan `media3-exoplayer-hls`).
+ *
+ * Kenapa lewat error, bukan langsung memasang URL m3u8 di `MediaItem`? Karena
+ * Lyreon memakai resolusi malas (`lyreon://audio/{id}`) agar antrean terbentuk
+ * seketika tanpa menunggu jaringan; tipe MediaSource harus diketahui saat
+ * `MediaItem` dibuat, dan itu hanya bisa dipastikan setelah resolusi.
+ */
+class HlsRequiredException(
+    val videoId: String,
+    val manifestUrl: String,
+    val manifestMime: String,
+) : IOException("Stream $videoId hanya tersedia sebagai manifest HLS")
